@@ -22,6 +22,7 @@ import numpy as _np
 from .._internal import NDArrayBase
 from . import _api_internal
 from ...util import set_module
+from ..ndarray import get_dtype_name
 
 
 __all__ = ['softmax', 'log_softmax', 'masked_softmax', 'masked_log_softmax',
@@ -77,7 +78,7 @@ def softmax(data, axis=-1, length=None, temperature=None, use_length=False, dtyp
         [0.33333334, 0.33333334, 0.33333334]])
     """
     if dtype and not isinstance(dtype, str):
-        dtype = _np.dtype(dtype).name
+        dtype = get_dtype_name(dtype)
     if use_length:
         assert length is not None, "Missing length input"
         return _api_internal.softmax(data, length, axis, temperature, True, dtype)
@@ -124,7 +125,7 @@ def log_softmax(data, axis=-1, length=None, temperature=None, use_length=False, 
         [-1.2411538 , -0.6931472 , -0.34115386]])
     """
     if dtype and not isinstance(dtype, str):
-        dtype = _np.dtype(dtype).name
+        dtype = get_dtype_name(dtype)
     if use_length:
         assert length is not None, "Missing length input"
         return _api_internal.log_softmax(data, length, axis, temperature, True, dtype)
@@ -599,8 +600,8 @@ def convolution(data=None, weight=None, bias=None, kernel=None, stride=None, dil
     """
     assert data is not None and weight is not None and kernel is not None, \
            "Missing input data, weight or kernel"
-    assert num_filter > 1, "Number of output filters should be greater than 1"
-    assert workspace > 0, "Maximum temporary workspace should be greater than 0"
+    assert num_filter >= 1, "Number of output filters should be greater equal to 1."
+    assert workspace >= 0, "Maximum temporary workspace should be greater equal to 0."
     if no_bias:
         assert bias is None, "Using no bias"
         return _api_internal.convolution(data, weight, kernel, stride, dilate, pad,
@@ -617,9 +618,9 @@ def convolution(data=None, weight=None, bias=None, kernel=None, stride=None, dil
 @set_module('mxnet.ndarray.numpy_extension')
 def deconvolution(data=None, weight=None, bias=None, kernel=None, stride=None, dilate=None,
                   pad=None, adj=None, target_shape=None, num_filter=1, num_group=1,
-                  workspace=512, no_bias=False, cudnn_tune=None,
+                  workspace=1024, no_bias=False, cudnn_tune=None,
                   cudnn_off=False, layout=None):
-    r"""Computes 1D or 2D transposed convolution (aka fractionally strided convolution) of
+    r"""Computes 1D, 2D or 3D transposed convolution (aka fractionally strided convolution) of
     the input tensor. This operation can be seen as the gradient of Convolution operation
     with respect to its input. Convolution usually reduces the size of the input.
     Transposed convolution works the other way, going from a smaller input
@@ -682,8 +683,8 @@ def deconvolution(data=None, weight=None, bias=None, kernel=None, stride=None, d
     """
     assert data is not None and weight is not None and kernel is not None, \
            "Missing input data, weight or kernel"
-    assert num_filter > 1, "Number of output filters should be greater than 1"
-    assert workspace > 0, "Maximum temporary workspace should be greater than 0"
+    assert num_filter >= 1, "Number of output filters should be greater equal to 1."
+    assert workspace >= 0, "Maximum temporary workspace should be greater equal to 0."
     if no_bias:
         assert bias is None, "Using no bias"
         return _api_internal.deconvolution(data, weight, kernel, stride, dilate, pad,
@@ -883,7 +884,7 @@ def one_hot(data, depth=None, on_value=1.0, off_value=0.0, dtype="float32"):
     """
     assert depth is not None, "Please provide the depth of one hot dimension."
     if not isinstance(dtype, str):
-        dtype = _np.dtype(dtype).name
+        dtype = get_dtype_name(dtype)
     return _api_internal.one_hot(data, depth, on_value, off_value, dtype)
 
 
@@ -917,7 +918,7 @@ def rnn(data=None, parameters=None, state=None, state_cell=None, sequence_length
         h_t = \tanh(W_{ih} * x_t + b_{ih}  +  W_{hh} * h_{(t-1)} + b_{hh})
 
     Reference paper: Finding structure in time - Elman, 1988.
-    https://crl.ucsd.edu/~elman/Papers/fsit.pdf
+    https://axon.cs.byu.edu/~martinez/classes/678/Papers/Elman_time.pdf
 
     **LSTM**
 
@@ -1128,6 +1129,7 @@ def embedding(data, weight, input_dim=None, output_dim=None, dtype="float32", sp
     """
     assert input_dim > 0, "Vocabulary size of the input indices should be greater than 0."
     assert output_dim > 0, "Dimension of the embedding vectors should greater than 0."
+    assert not sparse_grad, "Currently row sparse gradient is not supported in npx.embedding"
     return _api_internal.embedding(data, weight, input_dim, output_dim, dtype, sparse_grad)
 
 

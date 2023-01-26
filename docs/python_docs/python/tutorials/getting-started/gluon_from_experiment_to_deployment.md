@@ -46,7 +46,7 @@ We have prepared a utility file to help you download and organize your data into
 ```{.python .input}
 import mxnet as mx
 data_util_file = "oxford_102_flower_dataset.py"
-base_url = "https://raw.githubusercontent.com/apache/incubator-mxnet/master/docs/tutorial_utils/data/{}?raw=true"
+base_url = "https://raw.githubusercontent.com/apache/mxnet/master/docs/tutorial_utils/data/{}?raw=true"
 mx.test_utils.download(base_url.format(data_util_file), fname=data_util_file)
 import oxford_102_flower_dataset
 
@@ -91,10 +91,10 @@ lr_factor = 0.75
 # learning rate change at following epochs
 lr_epochs = [10, 20, 30]
 
-num_gpus = mx.context.num_gpus()
+num_gpus = mx.device.num_gpus()
 # you can replace num_workers with the number of cores on you device
 num_workers = 8
-ctx = [mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
+device = [mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
 batch_size = per_device_batch_size * max(num_gpus, 1)
 ```
 
@@ -166,11 +166,11 @@ Before we go to training, one unique Gluon feature you should be aware of is hyb
 
 ```{.python .input}
 # load pre-trained resnet50_v2 from model zoo
-finetune_net = resnet50_v2(pretrained=True, ctx=ctx)
+finetune_net = resnet50_v2(pretrained=True, device=device)
 
 # change last softmax layer since number of classes are different
 finetune_net.output = nn.Dense(classes)
-finetune_net.output.initialize(init.Xavier(), ctx=ctx)
+finetune_net.output.initialize(init.Xavier(), device=device)
 # hybridize for better performance
 finetune_net.hybridize()
 
@@ -195,11 +195,11 @@ Now let's define the test metrics and start fine-tuning.
 
 
 ```{.python .input}
-def test(net, val_data, ctx):
+def test(net, val_data, device):
     metric = mx.gluon.metric.Accuracy()
     for i, (data, label) in enumerate(val_data):
-        data = gluon.utils.split_and_load(data, ctx_list=ctx, even_split=False)
-        label = gluon.utils.split_and_load(label, ctx_list=ctx, even_split=False)
+        data = gluon.utils.split_and_load(data, device, even_split=False)
+        label = gluon.utils.split_and_load(label, device, even_split=False)
         outputs = [net(x) for x in data]
         metric.update(label, outputs)
     return metric.get()
@@ -215,8 +215,8 @@ for epoch in range(1, epochs + 1):
 
     for i, (data, label) in enumerate(train_data):
         # get the images and labels
-        data = gluon.utils.split_and_load(data, ctx_list=ctx, even_split=False)
-        label = gluon.utils.split_and_load(label, ctx_list=ctx, even_split=False)
+        data = gluon.utils.split_and_load(data, device, even_split=False)
+        label = gluon.utils.split_and_load(label, device, even_split=False)
         with autograd.record():
             outputs = [finetune_net(x) for x in data]
             loss = [softmax_cross_entropy(yhat, y) for yhat, y in zip(outputs, label)]
@@ -229,12 +229,12 @@ for epoch in range(1, epochs + 1):
 
     _, train_acc = metric.get()
     train_loss /= num_batch
-    _, val_acc = test(finetune_net, val_data, ctx)
+    _, val_acc = test(finetune_net, val_data, device)
 
     print('[Epoch %d] Train-acc: %.3f, loss: %.3f | Val-acc: %.3f | learning-rate: %.3E | time: %.1f' %
           (epoch, train_acc, train_loss, val_acc, trainer.learning_rate, time.time() - tic))
 
-_, test_acc = test(finetune_net, test_data, ctx)
+_, test_acc = test(finetune_net, test_data, device)
 print('[Finished] Test-acc: %.3f' % (test_acc))
 ```
 
@@ -271,4 +271,4 @@ You can find more ways to run inference and deploy your models here:
 2. [Gluon book on fine-tuning](https://www.d2l.ai/chapter_computer-vision/fine-tuning.html)
 3. [Gluon CV transfer learning tutorial](https://cv.gluon.ai/build/examples_classification/transfer_learning_minc.html)
 4. [Gluon crash course](https://gluon-crash-course.mxnet.io/)
-5. [Gluon CPP inference example](https://github.com/apache/incubator-mxnet/blob/master/cpp-package/example/inference/)
+5. [Gluon CPP inference example](https://github.com/apache/mxnet/blob/master/cpp-package/example/inference/)

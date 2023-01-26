@@ -76,10 +76,10 @@ Accelerated Backend
    ..
       TBD Content
       .. card::
-         :title: MKL-DNN
-         :link: backend/mkldnn/mkldnn_readme
+         :title: oneDNN
+         :link: backend/dnnl/dnnl_readme
 
-         How to get the most from your CPU by using Intel's MKL-DNN.
+         How to get the most from your CPU by using oneDNN.
 
       .. card::
          :title: TVM
@@ -114,7 +114,7 @@ Distributed Training
 
    .. card::
       :title: MXNet with Horovod
-      :link: https://github.com/apache/incubator-mxnet/tree/master/example/distributed_training-horovod
+      :link: https://github.com/apache/mxnet/tree/master/example/distributed_training-horovod
 
       A set of example scripts demonstrating MNIST and ImageNet training with Horovod as the distributed training backend.
 

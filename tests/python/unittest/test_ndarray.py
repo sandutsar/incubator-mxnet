@@ -27,7 +27,7 @@ import pytest
 from common import assertRaises, TemporaryDirectory
 from mxnet.test_utils import almost_equal
 from mxnet.test_utils import assert_almost_equal, assert_exception
-from mxnet.test_utils import default_context
+from mxnet.test_utils import default_device
 from mxnet.test_utils import np_reduce
 from mxnet.test_utils import same
 from mxnet.test_utils import random_sample, rand_shape_nd, random_arrays
@@ -36,6 +36,7 @@ from numpy.testing import assert_allclose, assert_array_equal, assert_array_almo
 import mxnet.autograd
 from mxnet.base import integer_types
 from mxnet.ndarray.ndarray import py_slice
+from mxnet.amp.amp import bfloat16
 
 
 def check_with_uniform(uf, arg_shapes, dim=None, npuf=None, rmin=-10, type_list=[np.float32]):
@@ -153,7 +154,7 @@ def test_ndarray_setitem():
         assert x.shape == trivial_shape
         assert same(x.asnumpy(), x_np)
 
-    # test https://github.com/apache/incubator-mxnet/issues/16647
+    # test https://github.com/apache/mxnet/issues/16647
     dst = mx.nd.zeros((1, 3, 1))  # destination array
     src = [1, 2, 3]
     dst[0, :len(src), 0] = src
@@ -175,7 +176,7 @@ def test_ndarray_elementwise():
     maxdim = 4
     all_type = [np.float32, np.float64, np.float16, np.uint8, np.int8, np.int32, np.int64]
     real_type = [np.float32, np.float64, np.float16]
-    for repeat in range(nrepeat):
+    for _ in range(nrepeat):
         for dim in range(1, maxdim):
             check_with_uniform(lambda x, y: x + y, 2, dim, type_list=all_type)
             check_with_uniform(lambda x, y: x - y, 2, dim, type_list=all_type)
@@ -231,7 +232,7 @@ def test_ndarray_reshape():
     assert same(tensor.reshape(-1, 15).reshape(0, -4, 3, -1).asnumpy(), true_res.reshape(2, 3, 5).asnumpy())
     assert same(tensor.reshape(-1, 0).asnumpy(), true_res.reshape(10, 3).asnumpy())
     assert same(tensor.reshape(-1, 0, reverse=True).asnumpy(), true_res.reshape(6, 5).asnumpy())
-    # https://github.com/apache/incubator-mxnet/issues/18886
+    # https://github.com/apache/mxnet/issues/18886
     assertRaises(ValueError, tensor.reshape, (2, 3))
 
 def test_ndarray_flatten():
@@ -295,7 +296,7 @@ def test_ndarray_choose():
     npy = np.arange(np.prod(shape)).reshape(shape)
     arr = mx.nd.array(npy)
     nrepeat = 3
-    for repeat in range(nrepeat):
+    for _ in range(nrepeat):
         indices = np.random.randint(shape[1], size=shape[0])
         assert same(npy[np.arange(shape[0]), indices],
                     mx.nd.choose_element_0index(arr, mx.nd.array(indices)).asnumpy())
@@ -307,7 +308,7 @@ def test_ndarray_fill():
     arr = mx.nd.array(npy)
     new_npy = npy.copy()
     nrepeat = 3
-    for repeat in range(nrepeat):
+    for _ in range(nrepeat):
         indices = np.random.randint(shape[1], size=shape[0])
         val = np.random.randint(shape[1], size=shape[0])
         new_npy[:] = npy
@@ -321,7 +322,7 @@ def test_ndarray_onehot():
     npy = np.arange(np.prod(shape)).reshape(shape)
     arr = mx.nd.array(npy)
     nrepeat = 3
-    for repeat in range(nrepeat):
+    for _ in range(nrepeat):
         indices = np.random.randint(shape[1], size=shape[0])
         npy[:] = 0.0
         npy[np.arange(shape[0]), indices] = 1.0
@@ -374,10 +375,10 @@ def test_ndarray_pickle():
 def test_ndarray_saveload(save_fn):
     nrepeat = 10
     fname = 'tmp_list'
-    for repeat in range(nrepeat):
+    for _ in range(nrepeat):
         data = []
         # test save/load as list
-        for i in range(10):
+        for _ in range(10):
             data.append(random_ndarray(np.random.randint(1, 5)))
         if save_fn is mx.nd.save:
             save_fn(fname, data)
@@ -388,7 +389,7 @@ def test_ndarray_saveload(save_fn):
         for x, y in zip(data, data2 if save_fn is mx.nd.save else data2.values()):
             assert np.sum(x.asnumpy() != y.asnumpy()) == 0
         # test save/load as dict
-        dmap = {'ndarray xx %s' % i : x for i, x in enumerate(data)}
+        dmap = {f'ndarray xx {i}' : x for i, x in enumerate(data)}
         if save_fn is mx.nd.save:
             save_fn(fname, dmap)
         else:
@@ -437,7 +438,7 @@ def test_ndarray_load_fortran_order(tmp_path):
 
 def test_ndarray_legacy_load():
     data = []
-    for i in range(6):
+    for _ in range(6):
         data.append(mx.nd.arange(128))
     path = os.path.dirname(os.path.realpath(__file__))
     legacy_data = mx.nd.load(os.path.join(path, 'legacy_ndarray.v0'))
@@ -452,7 +453,7 @@ def test_buffer_load():
         for repeat in range(nrepeat):
             # test load_buffer as list
             data = []
-            for i in range(10):
+            for _ in range(10):
                 data.append(random_ndarray(np.random.randint(1, 5)))
             fname = os.path.join(tmpdir, 'list_{0}.param'.format(repeat))
             mx.nd.save(fname, data)
@@ -465,7 +466,7 @@ def test_buffer_load():
                 # test garbage values
                 assertRaises(mx.base.MXNetError,  mx.nd.load_frombuffer, buf_data[:-10])
             # test load_buffer as dict
-            dmap = {'ndarray xx %s' % i : x for i, x in enumerate(data)}
+            dmap = {f'ndarray xx {i}' : x for i, x in enumerate(data)}
             fname = os.path.join(tmpdir, 'dict_{0}.param'.format(repeat))
             mx.nd.save(fname, dmap)
             with open(fname, 'rb') as dfile:
@@ -616,7 +617,7 @@ def test_reduce():
         dtypes = [(np.float16, 1),
                   (np.float32, 4),
                   (np.double, 6)]
-        for i in range(sample_num):
+        for _ in range(sample_num):
             dtype, decimal = random.choice(dtypes)
             ndim = np.random.randint(1, 6)
             shape = np.random.randint(1, 11, size=ndim)
@@ -663,8 +664,8 @@ def test_reduce():
             if type(ndarray_ret) is mx.ndarray.NDArray:
                 ndarray_ret = ndarray_ret.asnumpy()
             assert (ndarray_ret.shape == numpy_ret.shape) or \
-                   (ndarray_ret.shape == (1,) and numpy_ret.shape == ()), "nd:%s, numpy:%s" \
-                                                         %(ndarray_ret.shape, numpy_ret.shape)
+                   (ndarray_ret.shape == (1,) and numpy_ret.shape == ()), \
+                   f"nd:{ndarray_ret.shape}, numpy:{numpy_ret.shape}"
             if check_dtype:
                 assert ndarray_ret.dtype == numpy_ret.dtype,\
                         (ndarray_ret.dtype, numpy_ret.dtype)
@@ -857,7 +858,7 @@ def test_moveaxis():
 
 
 def test_arange():
-    for i in range(5):
+    for _ in range(5):
         start = np.random.rand() * 10
         stop = start + np.random.rand() * 100
         step = np.random.rand() * 4
@@ -873,7 +874,7 @@ def test_arange():
 
 
 def test_linspace():
-    for i in range(5):
+    for _ in range(5):
         start = np.random.rand() * 100
         stop = np.random.rand() * 100
         num = np.random.randint(20)
@@ -890,7 +891,7 @@ def test_linspace():
 
 @pytest.mark.serial
 def test_order():
-    ctx = default_context()
+    ctx = default_device()
     dat_size = 5
     is_large_tensor_enabled = runtime.Features().is_enabled('INT64_TENSOR_SIZE')
     def gt_topk(dat, axis, ret_typ, k, is_ascend):
@@ -1295,7 +1296,7 @@ def test_ndarray_fluent():
                     'softmin', 'reciprocal'])
     def check_fluent_regular(func, kwargs, shape=(5, 17, 1), equal_nan=False):
         with mx.name.NameManager():
-            data = mx.nd.random_uniform(shape=shape, ctx=default_context())
+            data = mx.nd.random_uniform(shape=shape, ctx=default_device())
             regular = getattr(mx.ndarray, func)(data, **kwargs)
             fluent = getattr(data, func)(**kwargs)
             if isinstance(regular, list):
@@ -1665,7 +1666,7 @@ def test_ndarray_indexing():
 
 
 def test_assign_float_value_to_ndarray():
-    """Test case from https://github.com/apache/incubator-mxnet/issues/8668"""
+    """Test case from https://github.com/apache/mxnet/issues/8668"""
     a = np.array([47.844944], dtype=np.float32)
     b = mx.nd.zeros(1, dtype=np.float32)
     b[0] = a
@@ -1674,7 +1675,7 @@ def test_assign_float_value_to_ndarray():
     assert same(a, b.asnumpy())
 
 def test_assign_large_int_to_ndarray():
-    """Test case from https://github.com/apache/incubator-mxnet/issues/11639"""
+    """Test case from https://github.com/apache/mxnet/issues/11639"""
     a = mx.nd.zeros((4, 1), dtype=np.int32)
     a[1,0] = int(16800001)
     a[2,0] = int(16800002)
@@ -1685,7 +1686,7 @@ def test_assign_large_int_to_ndarray():
     assert same(b[1,0], 16800000)
 
 def test_assign_a_row_to_ndarray():
-    """Test case from https://github.com/apache/incubator-mxnet/issues/9976"""
+    """Test case from https://github.com/apache/mxnet/issues/9976"""
     H, W = 10, 10
     dtype = np.float32
     a_np = np.random.random((H, W)).astype(dtype)
@@ -1746,7 +1747,7 @@ def test_ndarray_astype():
 
 
 @pytest.mark.serial
-def test_norm(ctx=default_context()):
+def test_norm(ctx=default_device()):
     try:
         import scipy
         assert LooseVersion(scipy.__version__) >= LooseVersion('0.1')
@@ -1791,7 +1792,7 @@ def test_ndarray_cpu_shared_ctx():
 
 @pytest.mark.serial
 def test_dlpack():
-    for dtype in [np.float32, np.int32]:
+    for _ in [np.float32, np.int32]:
         for shape in [(3, 4, 5, 6), (2, 10), (15,)]:
             a = mx.nd.random.uniform(shape = shape)
             a_np = a.copy()
@@ -2014,7 +2015,7 @@ def test_update_ops_mutation():
 
 
 # Problem :
-# https://github.com/apache/incubator-mxnet/pull/15768#issuecomment-532046408
+# https://github.com/apache/mxnet/pull/15768#issuecomment-532046408
 @pytest.mark.seed(412298777)
 @pytest.mark.serial
 def test_update_ops_mutation_failed_seed():
@@ -2058,7 +2059,7 @@ def test_load_saved_gpu_array_when_no_gpus_are_present():
     array.__setstate__(ndarray_state)
 
 def test_readable_bfloat16_print():
-    arr_bfloat16 = mx.nd.linspace(0, 1, 16).reshape((2, 2, 2, 2)).astype(np.dtype([('bfloat16', np.uint16)]))
+    arr_bfloat16 = mx.nd.linspace(0, 1, 16).reshape((2, 2, 2, 2)).astype(bfloat16)
     arr_uint16 = arr_bfloat16.asnumpy()
     arr_float = arr_bfloat16.astype(float)
     assert (arr_bfloat16.__str__() == arr_float.__str__())

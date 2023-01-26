@@ -30,7 +30,7 @@ sys.path.insert(0, os.path.join(curr_path, '../../../python'))
 import models
 from contextlib import contextmanager
 import pytest
-from tempfile import TemporaryDirectory
+from mxnet.util import TemporaryDirectory
 import locale
 
 xfail_when_nonstandard_decimal_separator = pytest.mark.xfail(
@@ -47,7 +47,7 @@ def assertRaises(expected_exception, func, *args, **kwargs):
         pass
     else:
         # Did not raise exception
-        assert False, "%s did not raise %s" % (func.__name__, expected_exception.__name__)
+        assert False, f"{func.__name__} did not raise {expected_exception.__name__}"
 
 
 def default_logger():
@@ -136,7 +136,7 @@ def _assert_raise_cuxx_version_not_satisfied(min_version, cfg):
             cuxx_off = os.getenv(cfg['TEST_OFF_ENV_VAR']) == 'true'
             cuxx_env_version = os.getenv(cfg['VERSION_ENV_VAR'], None if cuxx_off else cfg['DEFAULT_VERSION'])
             cuxx_test_disabled = cuxx_off or less_than(cuxx_env_version, min_version)
-            if not cuxx_test_disabled or mx.context.current_context().device_type == 'cpu':
+            if not cuxx_test_disabled or mx.device.current_device().device_type == 'cpu':
                 orig_test(*args, **kwargs)
             else:
                 pytest.raises((MXNetError, RuntimeError), orig_test, *args, **kwargs)
@@ -201,8 +201,8 @@ def run_in_spawned_process(func, env, *args):
     try:
         mpctx = mp.get_context('spawn')
     except:
-        print('SKIP: python%s.%s lacks the required process fork-exec support ... ' %
-              sys.version_info[0:2], file=sys.stderr, end='')
+        print(f'SKIP: python{sys.version_info[0]}.{sys.version_info[1]} lacks the required process fork-exec support ... ',
+              file=sys.stderr, end='')
         return False
     else:
         seed = np.random.randint(0,1024*1024*1024)
@@ -211,7 +211,7 @@ def run_in_spawned_process(func, env, *args):
             p = mpctx.Process(target=func, args=(seed,)+args)
             p.start()
             p.join()
-            assert p.exitcode == 0, "Non-zero exit code %d from %s()." % (p.exitcode, func.__name__)
+            assert p.exitcode == 0, f"Non-zero exit code {p.exitcode} from {func.__name__}()."
     return True
 
 

@@ -1,19 +1,22 @@
-<!--- Licensed to the Apache Software Foundation (ASF) under one -->
-<!--- or more contributor license agreements.  See the NOTICE file -->
-<!--- distributed with this work for additional information -->
-<!--- regarding copyright ownership.  The ASF licenses this file -->
-<!--- to you under the Apache License, Version 2.0 (the -->
-<!--- "License"); you may not use this file except in compliance -->
-<!--- with the License.  You may obtain a copy of the License at -->
-
-<!---   http://www.apache.org/licenses/LICENSE-2.0 -->
-
-<!--- Unless required by applicable law or agreed to in writing, -->
-<!--- software distributed under the License is distributed on an -->
-<!--- "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY -->
-<!--- KIND, either express or implied.  See the License for the -->
-<!--- specific language governing permissions and limitations -->
-<!--- under the License. -->
+<!--
+  ~ Licensed to the Apache Software Foundation (ASF) under one
+  ~ or more contributor license agreements.  See the NOTICE file
+  ~ distributed with this work for additional information
+  ~ regarding copyright ownership.  The ASF licenses this file
+  ~ to you under the Apache License, Version 2.0 (the
+  ~ "License"); you may not use this file except in compliance
+  ~ with the License.  You may obtain a copy of the License at
+  ~
+  ~   http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing,
+  ~ software distributed under the License is distributed on an
+  ~ "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+  ~ KIND, either express or implied.  See the License for the
+  ~ specific language governing permissions and limitations
+  ~ under the License.
+  ~
+-->
 
 # MXNet Operator Performance Benchmarks
 
@@ -37,7 +40,7 @@ Benchmarks are usually done end-to-end for a given Network Architecture. For exa
 2. A standard Network Architecture like ResNet-50 is made up of many operators Ex: Convolution2D, Softmax, Dense and more. Consider the following scenarios:
     1. We improved the performance of Convolution2D operator, but due to a bug, Softmax performance went down. Overall, we may observe end to end benchmarks are running fine, we may miss out the performance degradation of a single operator which can accumulate and become untraceable.
     2. You need to see in a given network, which operator is taking maximum time and plan optimization work. With end to end benchmarks, it is hard to get more fine grained numbers at operator level.
-3. We need to know on different hardware infrastructure (Ex: CPU with ONEDNN, GPU with NVIDIA CUDA and cuDNN) how different operators performs. With these details, we can plan the optimization work at operator level, which could exponentially boost up end to end performance.
+3. We need to know on different hardware infrastructure (Ex: CPU with oneDNN, GPU with NVIDIA CUDA and cuDNN) how different operators performs. With these details, we can plan the optimization work at operator level, which could exponentially boost up end to end performance.
 4. You want to have nightly performance tests across all operators in a deep learning framework to catch regressions early. 
 5. We can integrate this framework with a CI/CD system to run per operator performance tests for PRs. Example: When a PR modifies the kernel of TransposeConv2D, we can run benchmarks of TransposeConv2D operator to verify performance.
 
@@ -54,7 +57,7 @@ Note:
 2. To install MXNet, refer [Installing MXNet page](https://mxnet.apache.org/versions/master/install/index.html)
 
 ```
-export PYTHONPATH=$PYTHONPATH:/path/to/incubator-mxnet/
+export PYTHONPATH=$PYTHONPATH:/path/to/mxnet/
 ```
 
 ## Usecase 1 - Run benchmarks for all the operators
@@ -62,7 +65,7 @@ export PYTHONPATH=$PYTHONPATH:/path/to/incubator-mxnet/
 Below command runs all the MXNet operators (NDArray) benchmarks with default inputs and saves the final result as JSON in the given file.
 
 ```
-python incubator-mxnet/benchmark/opperf/opperf.py --output-format json --output-file mxnet_operator_benchmark_results.json
+python mxnet/benchmark/opperf/opperf.py --output-format json --output-file mxnet_operator_benchmark_results.json
 ```
 
 **Other Supported Options:**
@@ -257,7 +260,7 @@ See `utils/op_registry_utils.py` for more details.
 Optionally, you could use the python time package as the profiler engine to caliberate runtime in each operator.
 To use python timer for all operators, use the argument --profiler 'python':
 ```
-python incubator-mxnet/benchmark/opperf/opperf.py --profiler='python'
+python mxnet/benchmark/opperf/opperf.py --profiler='python'
 ```
 
 To use python timer for a specific operator, pass the argument profiler to the run_performance_test method:

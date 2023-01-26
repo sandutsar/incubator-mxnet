@@ -49,7 +49,7 @@ args = parser.parse_args()
 
 if not args.no_cuda:
     # Disable CUDA if there are no GPUs.
-    if mx.context.num_gpus() == 0:
+    if mx.device.num_gpus() == 0:
         args.no_cuda = True
 
 
@@ -234,4 +234,4 @@ for epoch in range(args.epochs):
     # Print test accuracy after every epoch
     test_accuracy = evaluate(test_data, net, ctx)
     if store.rank == 0:
-        logging.info("Epoch %d: Test_acc %f" % (epoch, test_accuracy))
+        logging.info(f"Epoch {epoch}: Test_acc {test_accuracy}")

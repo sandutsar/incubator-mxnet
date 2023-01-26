@@ -18,7 +18,6 @@
  */
 
 /*!
- * Copyright (c) 2019 by Contributors
  * \file np_pareto_op.cu
  * \brief Operator for numpy sampling from pareto distributions
  */
@@ -29,10 +28,12 @@ namespace mxnet {
 namespace op {
 
 NNVM_REGISTER_OP(_npi_pareto)
-.set_attr<FCompute>("FCompute<gpu>", NumpyParetoForward<gpu>);
+    .set_attr<FIsCUDAGraphsCompatible>("FIsCUDAGraphsCompatible",
+                                       [](const NodeAttrs&, const bool) { return false; })
+    .set_attr<FCompute>("FCompute<gpu>", NumpyParetoForward<gpu>);
 
 NNVM_REGISTER_OP(_backward_broadcast_pareto)
-.set_attr<FCompute>("FCompute<gpu>", ParetoReparamBackward<gpu>);
+    .set_attr<FCompute>("FCompute<gpu>", ParetoReparamBackward<gpu>);
 
 }  // namespace op
 }  // namespace mxnet

@@ -21,7 +21,7 @@ import sys
 
 import numpy as np
 import mxnet as mx
-mx.test_utils.set_default_context(mx.gpu(0))
+mx.test_utils.set_default_device(mx.gpu(0))
 
 curr_path = os.path.dirname(os.path.abspath(os.path.expanduser(__file__)))
 sys.path.insert(0, os.path.join(curr_path, '../unittest'))
@@ -85,7 +85,7 @@ def test_gpu_memory_profiler_symbolic():
     # tensordot:in_arg:A,8388608,0,8388608,0
     # tensordot:in_arg:B,33554432,0,33554432,0
 
-    with open('gpu_memory_profile-pid_%d.csv' % (os.getpid()), mode='r') as csv_file:
+    with open(f'gpu_memory_profile-pid_{os.getpid()}.csv', mode='r') as csv_file:
         csv_reader = csv.DictReader(csv_file)
         for row in csv_reader:
             print(",".join(list(row.values())))
@@ -120,11 +120,11 @@ def test_gpu_memory_profiler_gluon():
     model.add(nn.Dense(64, activation='tanh'),
               nn.Dense(32, in_units=64))
     model.add(nn.Activation('relu'))
-    model.initialize(ctx=mx.gpu())
+    model.initialize(device=mx.gpu())
     model.hybridize()
 
     with mx.autograd.record():
-        out = model(mx.np.zeros((16, 10), ctx=mx.gpu()))
+        out = model(mx.np.zeros((16, 10), device=mx.gpu()))
     out.backward()
     mx.npx.waitall()
     profiler.set_state('stop')
@@ -160,12 +160,12 @@ def test_gpu_memory_profiler_gluon():
 
     # We are only checking for weight parameters here, also making sure that
     # there is no unknown entries in the memory profile.
-    with open('gpu_memory_profile-pid_%d.csv' % (os.getpid()), mode='r') as csv_file:
+    with open(f'gpu_memory_profile-pid_{os.getpid()}.csv', mode='r') as csv_file:
         csv_reader = csv.DictReader(csv_file)
         for row in csv_reader:
             print(",".join(list(row.values())))
         for param in model.collect_params().values():
-            expected_arg_name = "%sin_arg:" % param.var().attr('__profiler_scope__') + \
+            expected_arg_name = f"{param.var().attr('__profiler_scope__')}in_arg:" + \
                                 param.name
             expected_arg_size = str(4 * np.prod(param.shape))
             csv_file.seek(0)

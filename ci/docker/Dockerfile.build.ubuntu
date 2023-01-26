@@ -36,13 +36,12 @@ WORKDIR /work/deps
 SHELL ["/bin/bash", "-c"]
 RUN export DEBIAN_FRONTEND=noninteractive && \
     export OS_RELEASE="$(cat /etc/os-release)" && \
+    apt-get clean && \
     apt-get update && \
     apt-get install -y wget software-properties-common && \
-    if [[ ${OS_RELEASE} == *"Bionic"* ]]; then \
-        wget -qO - wget https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS-2019.PUB | apt-key add -; \
-        apt-add-repository "deb https://apt.repos.intel.com/mkl all main"; \
-        INTEL_MKL="-2020.0-088"; \
-    fi && \
+    wget -qO - wget https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB -O - | apt-key add -; \
+    add-apt-repository "deb https://apt.repos.intel.com/oneapi all main"; \
+    INTEL_MKL="-2022.0.2"; \
     apt-get update && \
     apt-get install -y \
         ## Utilities
@@ -58,13 +57,15 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
         libprotobuf-dev \
         default-jdk \
         clang-6.0 \
+        clang-format \
         python-yaml \
         clang-10 \
         clang-tidy-10 \
         g++ \
         g++-7 \
         g++-8 \
-        intel-mkl${INTEL_MKL} \
+        intel-oneapi-mkl${INTEL_MKL} \
+        intel-oneapi-mkl-devel${INTEL_MKL} \
         libomp-dev \
         ## Dependencies
         libgomp1 \
@@ -90,7 +91,8 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
         libb2-dev \
         libzstd-dev \
         gfortran && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    add-apt-repository -r "deb https://apt.repos.intel.com/oneapi all main"
 
 # Build OpenBLAS from source
 RUN export LIBRARY_PATH=$LIBRARY_PATH:/usr/lib/gcc/x86_64-linux-gnu/7/ && \
@@ -157,24 +159,19 @@ SHELL ["/bin/bash", "-c"]
 # We need to redeclare ARG due to
 # https://docs.docker.com/engine/reference/builder/#understand-how-arg-and-from-interact
 ARG BASE_IMAGE
-RUN export SHORT_CUDA_VERSION=${CUDA_VERSION%.*} && \
-    export OS_RELEASE="$(cat /etc/os-release)" && \
-    apt-get update && \
-    if [[ ${OS_RELEASE} == *"Bionic"* ]]; then \
-        if [ ${SHORT_CUDA_VERSION} = 11.0 ]; then \
-            TRT_VERSION="7.2.0-1+cuda11.0"; \
-            TRT_MAJOR_VERSION=7; \
-        elif [ ${SHORT_CUDA_VERSION} = 11.1 ]; then \
-            TRT_VERSION="7.2.1-1+cuda11.1"; \
-            TRT_MAJOR_VERSION=7; \
-        else \
-            echo "ERROR: Cuda ${SHORT_CUDA_VERSION} not yet supported in Dockerfile.build.ubuntu"; \
-            exit 1; \
-        fi; \
+RUN apt-get update && \
+        apt-get install -y --allow-change-held-packages libcudnn8 libcudnn8-dev && \
+        rm -rf /var/lib/apt/lists/*
+
+ARG TRT_VERSION
+RUN if [ ! -z "${TRT_VERSION}" ]; then \
+        apt-get update && \
+        TRT_MAJOR_VERSION=$(echo $TRT_VERSION | cut -d. -f 1) && \
         apt-get install -y libnvinfer${TRT_MAJOR_VERSION}=${TRT_VERSION} \
                            libnvinfer-dev=${TRT_VERSION} \
                            libnvinfer-plugin${TRT_MAJOR_VERSION}=${TRT_VERSION} \
                            libnvinfer-plugin-dev=${TRT_VERSION}; \
-    fi && \
-    rm -rf /var/lib/apt/lists/*
+        rm -rf /var/lib/apt/lists/*; \
+    fi
+
 

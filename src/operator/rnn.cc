@@ -18,89 +18,98 @@
  */
 
 /*!
- * Copyright (c) 2015 by Contributors
  * \file rnn.cc
  * \brief
  * \author Sebastian Bodenstein
-*/
+ */
 
 #include <iterator>
 
 #include "./rnn-inl.h"
 #if MXNET_USE_ONEDNN == 1
-#include "./nn/mkldnn/mkldnn_rnn-inl.h"
+#include "./nn/dnnl/dnnl_rnn-inl.h"
 #endif  // MXNET_USE_ONEDNN == 1
 
 namespace mxnet {
 namespace op {
 
 DMLC_REGISTER_PARAMETER(RNNParam);
-static inline std::vector<std::string> ListArguments(const RNNParam& param_) {
+static inline std::vector<std::string> ListRnnInputNames(const RNNParam& param) {
   // All RNNs start off with same 3 input arguments
   std::vector<std::string> arguments{"data", "parameters", "state"};
 
   // LSTMs also have an additional state_cell argument
-  if (param_.mode == rnn_enum::kLstm) {
+  if (param.mode == rnn_enum::kLstm) {
     arguments.emplace_back("state_cell");
   }
 
   // All RNNs have option of additional sequence_length argument
-  if (param_.use_sequence_length) {
+  if (param.use_sequence_length) {
     arguments.emplace_back("sequence_length");
   }
 
   return arguments;
 }
 
+static inline std::vector<std::string> ListRnnOutputNames(const RNNParam& param) {
+  std::vector<std::string> names{"output"};
+  if (param.state_outputs) {
+    names.emplace_back("state_output");
+    if (param.mode == rnn_enum::kLstm)
+      names.emplace_back("statecell_output");
+  }
+  return names;
+}
+
 static bool RNNShape(const nnvm::NodeAttrs& attrs,
-                     std::vector<TShape> *in_shape,
-                     std::vector<TShape> *out_shape) {
-  const RNNParam& param_ = nnvm::get<RNNParam>(attrs.parsed);
+                     std::vector<TShape>* in_shape,
+                     std::vector<TShape>* out_shape) {
   using namespace mshadow;
+  const RNNParam& param = nnvm::get<RNNParam>(attrs.parsed);
 
-  // Query param_ object to figure out what the expectd input arguments are
-  std::vector<std::string> expected_arguments = ListArguments(param_);
+  // Query param object to figure out what the expectd input arguments are
+  std::vector<std::string> expected_arguments = ListRnnInputNames(param);
 
-  CHECK_EQ(in_shape->size(), expected_arguments.size()) << "Input shape mismatch. Expected " <<
-    expected_arguments.size() << " input parameters but got " << in_shape->size() << ".";
+  CHECK_EQ(in_shape->size(), expected_arguments.size())
+      << "Input shape mismatch. Expected " << expected_arguments.size()
+      << " input parameters but got " << in_shape->size() << ".";
 
-  const TShape &dshape = (*in_shape)[rnn_enum::kData];
-  if (!mxnet::ndim_is_known(dshape)) return false;
-  CHECK_EQ(dshape.ndim(), 3U) \
+  const TShape& dshape = (*in_shape)[rnn_enum::kData];
+  if (!mxnet::ndim_is_known(dshape))
+    return false;
+  CHECK_EQ(dshape.ndim(), 3U)
       << "Input data should be rank-3 tensor of dim [sequence length, batch size, input size]";
   // data: [sequence len, batch, input dimension]
   for (int i = 0; i < dshape.ndim(); i++) {
     CHECK_LT(dshape[i], INT32_MAX) << "ValueError: RNN does not support large"
-      << "dimensions (>= 2^31).";
+                                   << "dimensions (>= 2^31).";
   }
-  int batch_size = dshape[1];
-  int input_size = dshape[2];
-  int numDirections = param_.bidirectional ? 2 : 1;
-  int total_layers = numDirections * param_.num_layers;  // double for bidirectional
-  int layer_size = (param_.projection_size.has_value()) ?
-      param_.projection_size.value() : param_.state_size;
-  SHAPE_ASSIGN_CHECK(*in_shape,
-                     rnn_enum::kState,
-                     Shape3(total_layers, batch_size, layer_size));
-  if (param_.mode == rnn_enum::kLstm) {
-    SHAPE_ASSIGN_CHECK(*in_shape,
-                       rnn_enum::kStateCell,
-                       Shape3(total_layers, batch_size, param_.state_size));
+  int batch_size    = dshape[1];
+  int input_size    = dshape[2];
+  int numDirections = param.bidirectional ? 2 : 1;
+  int total_layers  = numDirections * param.num_layers;  // double for bidirectional
+  int layer_size =
+      (param.projection_size.has_value()) ? param.projection_size.value() : param.state_size;
+  SHAPE_ASSIGN_CHECK(*in_shape, rnn_enum::kState, Shape3(total_layers, batch_size, layer_size));
+  if (param.mode == rnn_enum::kLstm) {
+    SHAPE_ASSIGN_CHECK(
+        *in_shape, rnn_enum::kStateCell, Shape3(total_layers, batch_size, param.state_size));
   }
 
   // calculate parameter vector length
-  int param_size = GetRnnParamSize(param_.num_layers,
+  int param_size = GetRnnParamSize(param.num_layers,
                                    input_size,
-                                   param_.state_size,
+                                   param.state_size,
                                    numDirections,
-                                   param_.mode,
-                                   param_.projection_size);
+                                   param.mode,
+                                   param.projection_size);
   SHAPE_ASSIGN_CHECK(*in_shape, rnn_enum::kParams, Shape1(param_size));
 
   // Check on sequence_length shape if using
-  if (param_.use_sequence_length) {
+  if (param.use_sequence_length) {
     size_t seq_len_input_idx = rnn_enum::kSequenceLength;
-    if (param_.mode != rnn_enum::kLstm) --seq_len_input_idx;
+    if (param.mode != rnn_enum::kLstm)
+      --seq_len_input_idx;
 
     SHAPE_ASSIGN_CHECK(*in_shape, seq_len_input_idx, Shape1(batch_size));
   }
@@ -108,29 +117,29 @@ static bool RNNShape(const nnvm::NodeAttrs& attrs,
   out_shape->clear();
   // output: [sequence len, batch, output size]
   TShape oshape = dshape;
-  if (param_.projection_size.has_value()) {
-    oshape[2] = numDirections * param_.projection_size.value();
+  if (param.projection_size.has_value()) {
+    oshape[2] = numDirections * param.projection_size.value();
   } else {
-    oshape[2] = numDirections * param_.state_size;
+    oshape[2] = numDirections * param.state_size;
   }
   out_shape->push_back(oshape);
-  if (param_.state_outputs) {
+  if (param.state_outputs) {
     // outStateShape: [layer_num, batch, state size]
     TShape outStateShape = dshape;
-    outStateShape[0] = total_layers;
-    outStateShape[1] = batch_size;
-    if (param_.projection_size.has_value()) {
-      outStateShape[2] = param_.projection_size.value();
+    outStateShape[0]     = total_layers;
+    outStateShape[1]     = batch_size;
+    if (param.projection_size.has_value()) {
+      outStateShape[2] = param.projection_size.value();
     } else {
-      outStateShape[2] = param_.state_size;
+      outStateShape[2] = param.state_size;
     }
     out_shape->push_back(outStateShape);
     // Deal with lstm cell state
-    if (param_.mode == rnn_enum::kLstm) {
+    if (param.mode == rnn_enum::kLstm) {
       TShape cellStateShape = dshape;
-      cellStateShape[0] = total_layers;
-      cellStateShape[1] = batch_size;
-      cellStateShape[2] = param_.state_size;
+      cellStateShape[0]     = total_layers;
+      cellStateShape[1]     = batch_size;
+      cellStateShape[2]     = param.state_size;
       out_shape->push_back(cellStateShape);
     }
   }
@@ -139,42 +148,44 @@ static bool RNNShape(const nnvm::NodeAttrs& attrs,
 }
 
 static bool RNNType(const nnvm::NodeAttrs& attrs,
-                    std::vector<int> *in_type,
-                    std::vector<int> *out_type) {
-  const RNNParam& param_ = nnvm::get<RNNParam>(attrs.parsed);
+                    std::vector<int>* in_type,
+                    std::vector<int>* out_type) {
+  const RNNParam& param = nnvm::get<RNNParam>(attrs.parsed);
 
-  CHECK_EQ(in_type->size(), GetNumInputArguments(param_));
+  CHECK_EQ(in_type->size(), GetRnnNumInputs(param));
 
   size_t seq_len_input_idx = rnn_enum::kSequenceLength;
-  if (param_.mode != rnn_enum::kLstm)  --seq_len_input_idx;
+  if (param.mode != rnn_enum::kLstm)
+    --seq_len_input_idx;
 
   int dtype = (*in_type)[0];
   CHECK_NE(dtype, -1) << "First input must have specified type";
-  std::vector<std::string> arguments = ListArguments(param_);
+  std::vector<std::string> arguments = ListRnnInputNames(param);
   for (size_t i = 0; i < in_type->size(); ++i) {
     if ((*in_type)[i] == -1) {
       TYPE_ASSIGN_CHECK(*in_type, i, dtype);
     } else {
       // If using sequence length argument, it has its own indexing type
       // All other input arguments must match the main data type
-      if (!(param_.use_sequence_length && i == seq_len_input_idx)) {
+      if (!(param.use_sequence_length && i == seq_len_input_idx)) {
         UNIFORM_TYPE_CHECK((*in_type)[i], dtype, arguments[i]);
       }
     }
   }
   out_type->clear();
   out_type->push_back(dtype);
-  if (param_.state_outputs) {
+  if (param.state_outputs) {
     out_type->push_back(dtype);
     // Deal with lstm cell state
-    if (param_.mode == rnn_enum::kLstm) {
+    if (param.mode == rnn_enum::kLstm) {
       out_type->push_back(dtype);
     }
   }
   return true;
 }
 
-static std::vector<ResourceRequest> RNNResourceEx(const NodeAttrs& attrs, const int dev_mask,
+static std::vector<ResourceRequest> RNNResourceEx(const NodeAttrs& attrs,
+                                                  const int dev_mask,
                                                   const DispatchMode dispatch_mode) {
   std::vector<ResourceRequest> request;
   if (dev_mask == kGPU) {
@@ -195,23 +206,22 @@ static std::vector<ResourceRequest> RNNResourceEx(const NodeAttrs& attrs, const 
 inline static bool RNNStorageType(const nnvm::NodeAttrs& attrs,
                                   const int dev_mask,
                                   DispatchMode* dispatch_mode,
-                                  std::vector<int> *in_attrs,
-                                  std::vector<int> *out_attrs) {
+                                  std::vector<int>* in_attrs,
+                                  std::vector<int>* out_attrs) {
   const RNNParam& param = nnvm::get<RNNParam>(attrs.parsed);
-  const bool support_mkldnn_rnn =
+  const bool support_dnnl_rnn =
       !param.use_sequence_length && dmlc::GetEnv("MXNET_USE_ONEDNN_RNN", 1);
-  return MKLDNNStorageType(attrs, dev_mask, support_mkldnn_rnn,
-                           dispatch_mode, in_attrs, out_attrs);
+  return DNNLStorageType(attrs, dev_mask, support_dnnl_rnn, dispatch_mode, in_attrs, out_attrs);
 }
 #endif  // MXNET_USE_ONEDNN == 1
 
 struct RNNGrad {
-  const char *op_name;
-  std::vector<nnvm::NodeEntry> operator()(const nnvm::ObjectPtr &n,
-          const std::vector<nnvm::NodeEntry> &ograd) const {
+  const char* op_name;
+  std::vector<nnvm::NodeEntry> operator()(const nnvm::ObjectPtr& n,
+                                          const std::vector<nnvm::NodeEntry>& ograd) const {
     const RNNParam& params = nnvm::get<RNNParam>(n->attrs.parsed);
-    std::vector<nnvm::NodeEntry> heads{ n->inputs[rnn_enum::kData],
-      n->inputs[rnn_enum::kParams], n->inputs[rnn_enum::kState] };
+    std::vector<nnvm::NodeEntry> heads{
+        n->inputs[rnn_enum::kData], n->inputs[rnn_enum::kParams], n->inputs[rnn_enum::kState]};
     heads.emplace_back(n, rnn_enum::kOut, 0);
     heads.push_back(ograd[rnn_enum::kOut]);
     if (params.state_outputs) {
@@ -229,14 +239,14 @@ struct RNNGrad {
   }
 };
 
-static OpStatePtr CreateRNNState(const nnvm::NodeAttrs &attrs,
+static OpStatePtr CreateRNNState(const nnvm::NodeAttrs& attrs,
                                  const Context ctx,
-                                 const mxnet::ShapeVector &in_shapes,
-                                 const std::vector<int> &in_types) {
+                                 const mxnet::ShapeVector& in_shapes,
+                                 const std::vector<int>& in_types) {
   const RNNParam& param = nnvm::get<RNNParam>(attrs.parsed);
-  OpStatePtr state = OpStatePtr();
-  int dtype = in_types[rnn_enum::kData];
-  int itype = dtype;
+  OpStatePtr state      = OpStatePtr();
+  int dtype             = in_types[rnn_enum::kData];
+  int itype             = dtype;
   if (param.use_sequence_length) {
     size_t seq_len_input_idx = rnn_enum::kSequenceLength;
     if (param.mode != rnn_enum::kLstm) {
@@ -246,10 +256,9 @@ static OpStatePtr CreateRNNState(const nnvm::NodeAttrs &attrs,
   }
 
 #if MXNET_USE_ONEDNN == 1
-  if (ctx.dev_type == kCPU && SupportMKLDNNRnn(param, in_types[rnn_enum::kData])) {
+  if (ctx.dev_type == kCPU && SupportDNNLRnn(param, in_types[rnn_enum::kData])) {
     const mxnet::TShape& data_shape = in_shapes[rnn_enum::kData];
-    state = OpStatePtr::Create<MKLDNNRnnOp>(param, data_shape[0],
-        data_shape[1], data_shape[2]);
+    state = OpStatePtr::Create<DNNLRnnOp>(attrs, data_shape[0], data_shape[1], data_shape[2]);
     return state;
   }
 #endif  // MXNET_USE_ONEDNN == 1
@@ -272,8 +281,8 @@ static void RNNStatefulComputeExCPU(const OpStatePtr& state_ptr,
                                     const std::vector<NDArray>& inputs,
                                     const std::vector<OpReqType>& req,
                                     const std::vector<NDArray>& outputs) {
-  if (SupportMKLDNNRnn(inputs[rnn_enum::kData].dtype())) {
-    MKLDNNRnnOp& op = state_ptr.get_state<MKLDNNRnnOp>();
+  if (SupportDNNLRnn(inputs[rnn_enum::kData].dtype())) {
+    DNNLRnnOp& op = state_ptr.get_state<DNNLRnnOp>();
     op.Forward(ctx, inputs, req, outputs);
   } else {
     FallBackCompute(RNNStatefulCompute<cpu>, state_ptr, ctx, inputs, req, outputs);
@@ -285,8 +294,8 @@ static void RNNStatefulGradComputeExCPU(const OpStatePtr& state_ptr,
                                         const std::vector<NDArray>& inputs,
                                         const std::vector<OpReqType>& req,
                                         const std::vector<NDArray>& outputs) {
-  if (SupportMKLDNNRnn(inputs[rnn_enum::kData].dtype())) {
-    MKLDNNRnnOp& op = state_ptr.get_state<MKLDNNRnnOp>();
+  if (SupportDNNLRnn(inputs[rnn_enum::kData].dtype())) {
+    DNNLRnnOp& op = state_ptr.get_state<DNNLRnnOp>();
     op.Backward(ctx, inputs, req, outputs);
   } else {
     FallBackCompute(RNNStatefulGradCompute<cpu>, state_ptr, ctx, inputs, req, outputs);
@@ -295,8 +304,9 @@ static void RNNStatefulGradComputeExCPU(const OpStatePtr& state_ptr,
 #endif  // MXNET_USE_ONEDNN == 1
 
 NNVM_REGISTER_OP(RNN)
-.add_alias("_npx_rnn")
-.describe(R"code(Applies recurrent layers to input data. Currently, vanilla RNN, LSTM and GRU are
+    .add_alias("_npx_rnn")
+    .describe(
+        R"code(Applies recurrent layers to input data. Currently, vanilla RNN, LSTM and GRU are
 implemented, with both multi-layer and bidirectional support.
 
 When the input data is of type float32 and the environment variables MXNET_CUDA_ALLOW_TENSOR_CORE
@@ -320,7 +330,7 @@ With Tanh activtion function:
     h_t = \tanh(W_{ih} * x_t + b_{ih}  +  W_{hh} * h_{(t-1)} + b_{hh})
 
 Reference paper: Finding structure in time - Elman, 1988.
-https://crl.ucsd.edu/~elman/Papers/fsit.pdf
+https://axon.cs.byu.edu/~martinez/classes/678/Papers/Elman_time.pdf
 
 **LSTM**
 
@@ -367,87 +377,85 @@ The definition of GRU here is slightly different from paper but compatible with 
             h_t = (1 - z_t) * n_t + z_t * h_{(t-1)} \\
             \end{array}
 )code" ADD_FILELINE)
-.set_attr_parser(ParamParser<RNNParam>)
-.set_num_inputs([](const NodeAttrs& attrs) {
-  const RNNParam& params = nnvm::get<RNNParam>(attrs.parsed);
-  return GetNumInputArguments(params);
-})
-.set_num_outputs([](const NodeAttrs& attrs) {
-  const RNNParam& params = nnvm::get<RNNParam>(attrs.parsed);
-  //  kOut
-  int num_outputs = 1;
-  if (params.state_outputs) {
-    // kOut, kStateOut, kStateCellOut
-    num_outputs = (params.mode == rnn_enum::kLstm) ? 3 : 2;
-  }
+    .set_attr_parser(ParamParser<RNNParam>)
+    .set_num_inputs([](const NodeAttrs& attrs) {
+      const RNNParam& params = nnvm::get<RNNParam>(attrs.parsed);
+      return GetRnnNumInputs(params);
+    })
+    .set_num_outputs([](const NodeAttrs& attrs) {
+      const RNNParam& params = nnvm::get<RNNParam>(attrs.parsed);
+      //  kOut
+      int num_outputs = 1;
+      if (params.state_outputs) {
+        // kOut, kStateOut, kStateCellOut
+        num_outputs = (params.mode == rnn_enum::kLstm) ? 3 : 2;
+      }
 
-  return num_outputs;
-})
-.set_attr<nnvm::FListInputNames>("FListInputNames",
-  [](const NodeAttrs& attrs) {
-  const RNNParam& params = nnvm::get<RNNParam>(attrs.parsed);
-  return ListArguments(params);
-})
-.set_attr<nnvm::FListOutputNames>("FListOutputNames", [](const NodeAttrs& attrs) {
-  const RNNParam& params = nnvm::get<RNNParam>(attrs.parsed);
-  std::vector<std::string> names{"output"};
-  if (params.state_outputs) {
-    names.emplace_back("state_output");
-    if (params.mode == rnn_enum::kLstm)
-      names.emplace_back("statecell_output");
-  }
-  return names;
-})
-.set_attr<mxnet::FInferShape>("FInferShape", RNNShape)
-.set_attr<nnvm::FInferType>("FInferType", RNNType)
-.set_attr<FCreateOpState>("FCreateOpState", CreateRNNState)
-.set_attr<FStatefulCompute>("FStatefulCompute<cpu>", RNNStatefulCompute<cpu>)
+      return num_outputs;
+    })
+    .set_attr<nnvm::FListInputNames>("FListInputNames",
+                                     [](const NodeAttrs& attrs) {
+                                       const RNNParam& params = nnvm::get<RNNParam>(attrs.parsed);
+                                       return ListRnnInputNames(params);
+                                     })
+    .set_attr<nnvm::FListOutputNames>("FListOutputNames",
+                                      [](const NodeAttrs& attrs) {
+                                        const RNNParam& params = nnvm::get<RNNParam>(attrs.parsed);
+                                        return ListRnnOutputNames(params);
+                                      })
+    .set_attr<mxnet::FInferShape>("FInferShape", RNNShape)
+    .set_attr<nnvm::FInferType>("FInferType", RNNType)
+    .set_attr<FCreateOpState>("FCreateOpState", CreateRNNState)
+    .set_attr<FStatefulCompute>("FStatefulCompute<cpu>", RNNStatefulCompute<cpu>)
 #if MXNET_USE_ONEDNN == 1
-.set_attr<FInferStorageType>("FInferStorageType", RNNStorageType)
-.set_attr<bool>("TIsMKLDNN", true)
-.set_attr<FStatefulComputeEx>("FStatefulComputeEx<cpu>", RNNStatefulComputeExCPU)
+    .set_attr<FInferStorageType>("FInferStorageType", RNNStorageType)
+    .set_attr<bool>("TIsDNNL", true)
+    .set_attr<FStatefulComputeEx>("FStatefulComputeEx<cpu>", RNNStatefulComputeExCPU)
 #endif
-.set_attr<nnvm::FGradient>("FGradient", RNNGrad{"_backward_RNN"})
-.set_attr<FResourceRequestEx>("FResourceRequestEx", RNNResourceEx)
-.add_argument("data", "NDArray-or-Symbol", "Input data to RNN")
-.add_argument("parameters", "NDArray-or-Symbol",
-              "Vector of all RNN trainable parameters concatenated")
-.add_argument("state", "NDArray-or-Symbol", "initial hidden state of the RNN")
-.add_argument("state_cell", "NDArray-or-Symbol",
-              "initial cell state for LSTM networks (only for LSTM)")
-.add_argument("sequence_length", "NDArray-or-Symbol",
-              "Vector of valid sequence lengths for each element in batch. (Only used if"
-              " use_sequence_length kwarg is True)")
-.add_arguments(RNNParam::__FIELDS__());
+    .set_attr<nnvm::FGradient>("FGradient", RNNGrad{"_backward_RNN"})
+    .set_attr<FResourceRequestEx>("FResourceRequestEx", RNNResourceEx)
+    .add_argument("data", "NDArray-or-Symbol", "Input data to RNN")
+    .add_argument("parameters",
+                  "NDArray-or-Symbol",
+                  "Vector of all RNN trainable parameters concatenated")
+    .add_argument("state", "NDArray-or-Symbol", "initial hidden state of the RNN")
+    .add_argument("state_cell",
+                  "NDArray-or-Symbol",
+                  "initial cell state for LSTM networks (only for LSTM)")
+    .add_argument("sequence_length",
+                  "NDArray-or-Symbol",
+                  "Vector of valid sequence lengths for each element in batch. (Only used if"
+                  " use_sequence_length kwarg is True)")
+    .add_arguments(RNNParam::__FIELDS__());
 
 NNVM_REGISTER_OP(_backward_RNN)
-.set_num_inputs([](const NodeAttrs& attrs) {
-    const RNNParam& params = nnvm::get<RNNParam>(attrs.parsed);
-    int ret = 5;
-    if (params.state_outputs) {
-      ret += 2;
-    }
-    if (params.mode == rnn_enum::kLstm) {
-      ++ret;
+    .set_num_inputs([](const NodeAttrs& attrs) {
+      const RNNParam& params = nnvm::get<RNNParam>(attrs.parsed);
+      int ret                = 5;
       if (params.state_outputs) {
-      ret += 2;
+        ret += 2;
       }
-    }
-    return ret;
-})
-.set_num_outputs([](const NodeAttrs& attrs) {
-  const RNNParam& params = nnvm::get<RNNParam>(attrs.parsed);
-  return GetNumInputArguments(params);
-})
-.set_attr_parser(ParamParser<RNNParam>)
-.set_attr<bool>("TIsLayerOpBackward", true)
-.set_attr<nnvm::TIsBackward>("TIsBackward", true)
-.set_attr<FStatefulCompute>("FStatefulCompute<cpu>", RNNStatefulGradCompute<cpu>)
+      if (params.mode == rnn_enum::kLstm) {
+        ++ret;
+        if (params.state_outputs) {
+          ret += 2;
+        }
+      }
+      return ret;
+    })
+    .set_num_outputs([](const NodeAttrs& attrs) {
+      const RNNParam& params = nnvm::get<RNNParam>(attrs.parsed);
+      return GetRnnNumInputs(params);
+    })
+    .set_attr_parser(ParamParser<RNNParam>)
+    .set_attr<bool>("TIsLayerOpBackward", true)
+    .set_attr<nnvm::TIsBackward>("TIsBackward", true)
+    .set_attr<FStatefulCompute>("FStatefulCompute<cpu>", RNNStatefulGradCompute<cpu>)
 #if MXNET_USE_ONEDNN == 1
-.set_attr<FInferStorageType>("FInferStorageType", RNNStorageType)
-.set_attr<bool>("TIsMKLDNN", true)
-.set_attr<FStatefulComputeEx>("FStatefulComputeEx<cpu>", RNNStatefulGradComputeExCPU)
+    .set_attr<FInferStorageType>("FInferStorageType", RNNStorageType)
+    .set_attr<bool>("TIsDNNL", true)
+    .set_attr<FStatefulComputeEx>("FStatefulComputeEx<cpu>", RNNStatefulGradComputeExCPU)
 #endif
-.set_attr<FResourceRequestEx>("FResourceRequestEx", RNNResourceEx);
+    .set_attr<FResourceRequestEx>("FResourceRequestEx", RNNResourceEx);
 }  // namespace op
 }  // namespace mxnet

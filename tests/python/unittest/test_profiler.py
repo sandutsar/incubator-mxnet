@@ -84,7 +84,7 @@ def test_profile_create_domain():
     profiler.set_state('stop')
 
 
-@pytest.mark.skip(reason="Flaky test https://github.com/apache/incubator-mxnet/issues/15406")
+@pytest.mark.skip(reason="Flaky test https://github.com/apache/mxnet/issues/15406")
 def test_profile_create_domain_dept():
     profiler.set_config(profile_symbolic=True, filename='test_profile_create_domain_dept.json')
     profiler.set_state('run')
@@ -96,7 +96,7 @@ def test_profile_create_domain_dept():
 def test_profile_task():
     def makeParams():
         objects = tuple('foo' for _ in range(50))
-        template = ''.join('{%d}' % i for i in range(len(objects)))
+        template = ''.join(f'{{{i}}}' for i in range(len(objects)))
         return template, objects
 
     def get_log():
@@ -122,7 +122,7 @@ def test_profile_task():
 def test_profile_frame():
     def makeParams():
         objects = tuple('foo' for _ in range(50))
-        template = ''.join('{%d}' % i for i in range(len(objects)))
+        template = ''.join(f'{{{i}}}' for i in range(len(objects)))
         return template, objects
 
     def get_log():
@@ -149,7 +149,7 @@ def test_profile_frame():
 def test_profile_event(do_enable_profiler=True):
     def makeParams():
         objects = tuple('foo' for _ in range(50))
-        template = ''.join('{%d}' % i for i in range(len(objects)))
+        template = ''.join(f'{{{i}}}' for i in range(len(objects)))
         return template, objects
 
     def get_log():
@@ -189,7 +189,7 @@ def test_profile_tune_pause_resume():
 def test_profile_counter(do_enable_profiler=True):
     def makeParams():
         objects = tuple('foo' for _ in range(50))
-        template = ''.join('{%d}' % i for i in range(len(objects)))
+        template = ''.join(f'{{{i}}}' for i in range(len(objects)))
         return template, objects
 
     def get_log(counter):
@@ -262,12 +262,12 @@ def test_aggregate_stats_sorting():
     def check_sorting(debug_str, sort_by, ascending):
         target_dict = json.loads(debug_str, object_pairs_hook=OrderedDict)
         lst = []
-        for domain_name, domain in target_dict['Time'].items():
+        for _, domain in target_dict['Time'].items():
             lst = [item[sort_by_options[sort_by]] for item_name, item in domain.items()]
             check_ascending(lst, ascending)
         # Memory items do not have stat 'Total'
         if sort_by != 'total':
-            for domain_name, domain in target_dict['Memory'].items():
+            for _, domain in target_dict['Memory'].items():
                 lst = [item[sort_by_options[sort_by]] for item_name, item in domain.items()]
                 check_ascending(lst, ascending)
 
@@ -281,7 +281,7 @@ def test_aggregate_stats_sorting():
     profiler.set_state('stop')
 
 
-@pytest.mark.skip(reason='https://github.com/apache/incubator-mxnet/issues/18564')
+@pytest.mark.skip(reason='https://github.com/apache/mxnet/issues/18564')
 def test_aggregate_duplication():
     file_name = 'test_aggregate_duplication.json'
     enable_profiler(profile_filename=file_name, run=True, continuous_dump=True, \
@@ -440,19 +440,19 @@ def custom_operator_profiling_multiple_custom_ops(seed, mode, file_name):
     profiler.set_state('stop')
 
 
-@pytest.mark.skip(reason="Flaky test https://github.com/apache/incubator-mxnet/issues/15406")
+@pytest.mark.skip(reason="Flaky test https://github.com/apache/mxnet/issues/15406")
 def test_custom_operator_profiling_multiple_custom_ops_symbolic():
     custom_operator_profiling_multiple_custom_ops(None, 'symbolic', \
             'test_custom_operator_profiling_multiple_custom_ops_symbolic.json')
 
 
-@pytest.mark.skip(reason="Flaky test https://github.com/apache/incubator-mxnet/issues/15406")
+@pytest.mark.skip(reason="Flaky test https://github.com/apache/mxnet/issues/15406")
 def test_custom_operator_profiling_multiple_custom_ops_imperative():
     custom_operator_profiling_multiple_custom_ops(None, 'imperative', \
             'test_custom_operator_profiling_multiple_custom_ops_imperative.json')
 
 
-@pytest.mark.skip(reason="Flaky test https://github.com/apache/incubator-mxnet/issues/15406")
+@pytest.mark.skip(reason="Flaky test https://github.com/apache/mxnet/issues/15406")
 def test_custom_operator_profiling_naive_engine():
     # run the three tests above using Naive Engine
     run_in_spawned_process(test_custom_operator_profiling, \

@@ -1,22 +1,3 @@
-# Licensed to the Apache Software Foundation (ASF) under one
-# or more contributor license agreements.  See the NOTICE file
-# distributed with this work for additional information
-# regarding copyright ownership.  The ASF licenses this file
-# to you under the Apache License, Version 2.0 (the
-# "License"); you may not use this file except in compliance
-# with the License.  You may obtain a copy of the License at
-#
-#   http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an
-# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-# KIND, either express or implied.  See the License for the
-# specific language governing permissions and limitations
-# under the License.
-#
-# Based on
-# https://github.com/NVIDIA/mxnet_to_onnx/blob/master/mx2onnx_converter/mx2onnx_converter.py#
 #  Copyright (c) 2017, NVIDIA CORPORATION. All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -42,6 +23,9 @@
 #  OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 #  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+# Based on
+# https://github.com/NVIDIA/mxnet_to_onnx/blob/master/mx2onnx_converter/mx2onnx_converter.py
 
 # coding: utf-8
 # pylint: disable=invalid-name,too-many-locals,no-self-use,too-many-arguments,
@@ -93,9 +77,9 @@ class MXNetGraph(object):
         op = str(node["op"])
         opset_version = kwargs.get("opset_version", onnx_opset_version())
         if opset_version < 12:
-            logging.warning('Your ONNX op set version is %s, '  % str(opset_version) +
+            logging.warning('Your ONNX op set version is {}, '
                             'which is lower than then lowest tested op set (12), please consider '
-                            'updating ONNX')
+                            'updating ONNX'.format(str(opset_version)))
             opset_version = 12
         # Fallback to older opset versions if op is not registered in current version
         convert_func = None
@@ -107,7 +91,7 @@ class MXNetGraph(object):
 
         # The conversion logic is not implemented
         if convert_func is None:
-            raise AttributeError("No conversion function registered for op type %s yet." % op)
+            raise AttributeError(f"No conversion function registered for op type {op} yet.")
 
         ret = convert_func(node, **kwargs)
         # in case the conversion function does not specify the returned dtype, we just return None
@@ -384,11 +368,11 @@ class MXNetGraph(object):
                             if nodename in graph_outputs:
                                 graph_output_names.append(nodename)
                                 if verbose:
-                                    logging.info("Output node is: %s", nodename)
+                                    logging.info("Output node is: {}".format(nodename))
                     elif isinstance(converted_node, TensorProto):
                         raise ValueError("Did not expect TensorProto")
                     else:
-                        raise ValueError("node is of an unrecognized type: %s" % type(node))
+                        raise ValueError(f"node is of an unrecognized type: {type(node)}")
 
                     all_processed_nodes.append(converted_node)
 

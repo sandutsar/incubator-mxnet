@@ -36,23 +36,26 @@ from tools.rec2idx import IndexCreator
 
 def download_calib_dataset(dataset_url, calib_dataset, logger=None):
     if logger is not None:
-        logger.info('Downloading calibration dataset from %s to %s' % (dataset_url, calib_dataset))
+        logger.info(f'Downloading calibration dataset from {dataset_url} to {calib_dataset}')
     mx.test_utils.download(dataset_url, calib_dataset)
+
 
 def get_from_gluon(model_name, classes=1000, logger=None):
     dir_path = os.path.dirname(os.path.realpath(__file__))
     model_path = os.path.join(dir_path, 'model')
     if logger is not None:
-        logger.info('Converting model from Gluon-CV ModelZoo %s... into path %s' % (model_name, model_path))
+        logger.info(f'Converting model from Gluon-CV ModelZoo {model_name}... into path {model_path}')
     net = get_model(name=model_name, classes=classes, pretrained=True)
     prefix = os.path.join(model_path, model_name)
     return net, prefix
+
 
 def regex_find_excluded_symbols(patterns_dict, model_name):
     for key, value in patterns_dict.items():
         if re.search(key, model_name) is not None:
             return value
     return None
+
 
 def get_exclude_symbols(model_name, exclude_first_conv):
     """Grouped supported models at the time of commit:
@@ -91,12 +94,13 @@ def get_exclude_symbols(model_name, exclude_first_conv):
         }
         excluded_first_conv_sym_names = regex_find_excluded_symbols(first_conv_regex, model_name)
         if excluded_first_conv_sym_names is None:
-            raise ValueError('Currently, model %s is not supported in this script' % model_name)
+            raise ValueError(f'Currently, model {model_name} is not supported in this script')
         excluded_sym_names += excluded_first_conv_sym_names
     return excluded_sym_names
 
+
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Generate a calibrated quantized model from a FP32 model with Intel oneDNN support')
+    parser = argparse.ArgumentParser(description='Generate a calibrated quantized model from a FP32 model with oneDNN support')
     parser.add_argument('--model', type=str, default='resnet50_v1',
                         help='model to be quantized. If no-pretrained is set then'
                              'model must be provided to `model` directory in the same path'
@@ -116,7 +120,7 @@ if __name__ == '__main__':
                         help='number of batches for calibration')
     parser.add_argument('--exclude-first-conv', action='store_true', default=False,
                         help='excluding quantizing the first conv layer since the'
-                             ' input data may have negative value which doesn\'t support at moment' )
+                             ' input data may have negative value which doesn\'t support at moment')
     parser.add_argument('--shuffle-dataset', action='store_true',
                         help='shuffle the calibration dataset')
     parser.add_argument('--calib-mode', type=str, default='entropy',
@@ -148,8 +152,8 @@ if __name__ == '__main__':
 
     if logger:
         logger.info(args)
-        logger.info('shuffle_dataset=%s' % args.shuffle_dataset)
-        logger.info('calibration mode set to %s' % args.calib_mode)
+        logger.info(f'shuffle_dataset={args.shuffle_dataset}')
+        logger.info(f'calibration mode set to {args.calib_mode}')
 
     calib_mode = args.calib_mode
 
@@ -170,8 +174,7 @@ if __name__ == '__main__':
     dir_path = os.path.dirname(os.path.realpath(__file__))
     dir_path = os.path.join(dir_path, 'model')
     if not os.path.exists(dir_path):
-        os.mkdir(dir_path) # without try catch block as we expect to finish
-                           # script if it fail
+        os.mkdir(dir_path)  # without try catch block as we expect to finish script if it fail
 
     # download model
     if not args.no_pretrained:
@@ -183,7 +186,7 @@ if __name__ == '__main__':
         rgb_std = '0.229,0.224,0.225'
         epoch = 0
         net.hybridize()
-        net(mx.nd.zeros(data_shape[0])) # dummy forward pass to build graph
+        net(mx.np.zeros(data_shape[0])) # dummy forward pass to build graph
         net.export(prefix) # save model
         net.hybridize(active=False) # disable hybridization - it will be handled in quantization API
     else:
@@ -191,11 +194,10 @@ if __name__ == '__main__':
         epoch = args.epoch
         net = gluon.SymbolBlock.imports("{}-symbol.json".format(prefix), ['data'], "{}-0000.params".format(prefix))
 
-
     # get batch size
     batch_size = args.batch_size
     if logger:
-        logger.info('batch size = %d for calibration' % batch_size)
+        logger.info(f'batch size = {batch_size} for calibration')
 
     # get number of batches for calibration
     num_calib_batches = args.num_calib_batches
@@ -203,7 +205,7 @@ if __name__ == '__main__':
         if calib_mode == 'none':
             logger.info('skip calibration step as calib_mode is none')
         else:
-            logger.info('number of batches = %d for calibration' % num_calib_batches)
+            logger.info(f'number of batches = {num_calib_batches} for calibration')
 
     # get number of threads for decoding the dataset
     data_nthreads = args.data_nthreads
@@ -232,10 +234,10 @@ if __name__ == '__main__':
             excluded_sym_names += []
 
     if logger:
-        logger.info('These layers have been excluded %s' % excluded_sym_names)
-        logger.info('Input data shape = %s' % str(data_shape))
-        logger.info('rgb_mean = %s' % rgb_mean)
-        logger.info('rgb_std = %s' % rgb_std)
+        logger.info(f'These layers have been excluded {excluded_sym_names}')
+        logger.info(f'Input data shape = {str(data_shape)}')
+        logger.info(f'rgb_mean = {rgb_mean}')
+        logger.info(f'rgb_std = {rgb_std}')
 
     rgb_mean = [float(i) for i in rgb_mean.split(',')]
     mean_args = {'mean_r': rgb_mean[0], 'mean_g': rgb_mean[1], 'mean_b': rgb_mean[2]}
@@ -243,7 +245,7 @@ if __name__ == '__main__':
     std_args = {'std_r': rgb_std[0], 'std_g': rgb_std[1], 'std_b': rgb_std[2]}
     if calib_mode == 'none':
         if logger:
-            logger.info('Quantizing FP32 model %s' % args.model)
+            logger.info(f'Quantizing FP32 model {args.model}')
         qsym = quantize_net(net, ctx=ctx, exclude_layers_match=excluded_sym_names, data_shapes=data_shape,
                             calib_mode=calib_mode, quantized_dtype=args.quantized_dtype,
                             logger=logger)
@@ -261,12 +263,11 @@ if __name__ == '__main__':
                             calib_mode=calib_mode, calib_data=data_loader, num_calib_batches=num_calib_batches,
                             quantized_dtype=args.quantized_dtype, logger=logger)
         if calib_mode == 'entropy':
-            suffix = '-quantized-%dbatches-entropy' % num_calib_batches
+            suffix = f'-quantized-{num_calib_batches}batches-entropy'
         elif calib_mode == 'naive':
-            suffix = '-quantized-%dbatches-naive' % num_calib_batches
+            suffix = f'-quantized-{num_calib_batches}batches-naive'
         else:
-            raise ValueError('unknow calibration mode %s received, only supports `none`, `naive`, and `entropy`'
-                             % calib_mode)
+            raise ValueError(f'unknown calibration mode {calib_mode} received, only supports `none`, `naive`, and `entropy`')
     save_path = prefix + suffix
     model_path, params_path = qsym.export(save_path, epoch)
     if logger is not None:

@@ -20,6 +20,8 @@
 """Base container class for all neural network models."""
 __all__ = ['Block', 'HybridBlock', 'SymbolBlock']
 
+import enum
+import ctypes
 import copy
 import warnings
 import weakref
@@ -33,16 +35,16 @@ import numpy as np
 
 from ..base import mx_real_t, MXNetError, NDArrayHandle, SymbolHandle, py_str, check_call, _LIB
 from .. import symbol, ndarray, initializer, autograd, _deferred_compute as dc, name as _name, \
-    profiler as _profiler, context as _context
+    profiler as _profiler, device as _device
 from ..symbol.numpy import _symbol as np_symbol
 from ..symbol import Symbol, fromjson
-from ..ndarray import NDArray
+from ..ndarray import NDArray, get_dtype_name
 from .parameter import Parameter, DeferredInitializationError
 from .utils import _indent, _brief_print_list, HookHandle, shape_is_known
 from .utils import _check_same_symbol_type, _check_all_np_ndarrays, _check_block_input_np_ndarrays
 from .. import numpy_extension as _mx_npx
 from .. import numpy as _mx_np, ndarray as nd
-from .. util import is_np_array, np_shape, np_array
+from .. util import is_np_array, np_shape, np_array, wrap_ctx_to_device_func
 
 
 _naming_counter = contextvars.ContextVar('namecounter')
@@ -57,7 +59,7 @@ def _block_scope(block):
     if counter is not None:
         count = counter.get(name, 0)
         counter[name] = count + 1
-        name = '%s%d'%(name, count)
+        name = f'{name}{count}'
     counter_token = _naming_counter.set({})
     prefix_token = _prefix.set(_prefix.get() + name + '_')
     with _name.Prefix(_prefix.get()):
@@ -67,11 +69,11 @@ def _block_scope(block):
     _prefix.reset(prefix_token)
 
 
-def _gather_type_ctx_info(args):
+def _gather_type_device_info(args):
     """Analyze the elements inside the nested args object and find:
         - If there exists ndarray
         - If there exists symbol
-        - All contexts appearing in args
+        - All devices appearing in args
 
     Parameters
     ----------
@@ -84,32 +86,32 @@ def _gather_type_ctx_info(args):
         Whether the elements in args contains symbols
     has_ndarray : bool
         Whether the elements in args contains ndarrays
-    ctx_set : set of mxnet.context.Context
-        Contains all possible contexts of the inner ndarrays in args. Can be empty if there is no
+    device_set : set of mxnet.device.Device
+        Contains all possible devices of the inner ndarrays in args. Can be empty if there is no
         ndarray inside args.
-    first_ctx : mxnet.context.Context or None
-        Context of the first appeared NDArray (for backward-compatibility)
+    first_device : mxnet.device.Device or None
+        Device of the first appeared NDArray (for backward-compatibility)
     """
     if isinstance(args, NDArray):
-        return False, True, {args.ctx}, args.ctx
+        return False, True, {args.device}, args.device
     elif isinstance(args, Symbol):
         return True, False, set(), None
     elif isinstance(args, (list, tuple)):
         has_symbol = False
         has_ndarray = False
-        ctx_set = set()
-        first_ctx = None
+        device_set = set()
+        first_device = None
         for ele in args:
-            ele_has_sym, ele_has_nd, ele_ctx_set, ele_first_ctx =\
-                _gather_type_ctx_info(ele)
+            ele_has_sym, ele_has_nd, ele_device_set, ele_first_device =\
+                _gather_type_device_info(ele)
             has_symbol = has_symbol or ele_has_sym
             has_ndarray = has_ndarray or ele_has_nd
-            if first_ctx is None and ele_first_ctx is not None:
-                first_ctx = ele_first_ctx
-            ctx_set = ctx_set | ele_ctx_set
+            if first_device is None and ele_first_device is not None:
+                first_device = ele_first_device
+            device_set = device_set | ele_device_set
             if has_symbol and has_ndarray:
                 break
-        return has_symbol, has_ndarray, ctx_set, first_ctx
+        return has_symbol, has_ndarray, device_set, first_device
     else:
         return False, False, set(), None
 
@@ -220,8 +222,8 @@ class Block:
                 return mx.npx.relu(self.dense1(x))
 
         model = Model()
-        model.initialize(ctx=mx.cpu(0))
-        model(mx.np.zeros((10, 10), ctx=mx.cpu(0)))
+        model.initialize(device=mx.cpu(0))
+        model(mx.np.zeros((10, 10), device=mx.cpu(0)))
 
 
     Child :py:class:`Block` assigned this way will be registered and :py:meth:`collect_params`
@@ -375,7 +377,8 @@ class Block:
         else:
             ndarray.save(filename, arg_dict)
 
-    def load_parameters(self, filename, ctx=None, allow_missing=False,
+    @wrap_ctx_to_device_func
+    def load_parameters(self, filename, device=None, allow_missing=False,
                         ignore_extra=False, cast_dtype=False, dtype_source='current'):
         """Load parameters from file previously saved by `save_parameters`.
 
@@ -383,8 +386,8 @@ class Block:
         ----------
         filename : str
             Path to parameter file.
-        ctx : Context or list of Context, default cpu()
-            Context(s) to initialize loaded parameters on.
+        device : Device or list of Device, default cpu()
+            Device(s) to initialize loaded parameters on.
         allow_missing : bool, default False
             Whether to silently skip loading parameters not represents in the file.
         ignore_extra : bool, default False
@@ -428,9 +431,9 @@ class Block:
         if not loaded:
             return
         full_dict = {'params': loaded, 'filename': filename}
-        self.load_dict(full_dict, ctx, allow_missing, ignore_extra, cast_dtype, dtype_source)
+        self.load_dict(full_dict, device, allow_missing, ignore_extra, cast_dtype, dtype_source)
 
-    def load_dict(self, param_dict, ctx=None, allow_missing=False,
+    def load_dict(self, param_dict, device=None, allow_missing=False,
                   ignore_extra=False, cast_dtype=False, dtype_source="current"):
         """Load parameters from dict
 
@@ -438,8 +441,9 @@ class Block:
         ----------
         param_dict : dict
             Dictionary containing model parameters
-        ctx : Context or list of Context
-            Context(s) initialize loaded parameters on.
+        device : Device, optional
+            Device context on which the memory is allocated. Default is
+            `mxnet.device.current_device()`.
         allow_missing : bool, default False
             Whether to silently skip loading parameters not represented in the file.
         ignore_extra : bool, default False
@@ -460,7 +464,7 @@ class Block:
         else:
             filename = None
         params = self.collect_params()
-        error_str = "file: %s" % (filename) if filename else "param_dict"
+        error_str = f"file: {filename}" if filename else "param_dict"
         loaded = {k[4:] if k.startswith('arg:') or k.startswith('aux:') else k: v \
                   for k, v in param_dict.items()}
 
@@ -471,23 +475,21 @@ class Block:
 
             for name, param in params.items():
                 assert any(p in loaded for p in params_inv[param]), \
-                    "Parameter '%s' is missing in '%s', which contains parameters: %s. " \
-                    "Set allow_missing=True to ignore missing parameters."%(
-                        name, error_str, _brief_print_list(loaded.keys()))
+                f"Parameter '{name}' is missing in '{error_str}', which contains parameters: {_brief_print_list(loaded.keys())}. " \
+                    "Set allow_missing=True to ignore missing parameters."
 
-        if ctx is None:
-            ctx = _context.current_context()
+        if device is None:
+            device = _device.current_device()
         for name in loaded:
             if not ignore_extra and name not in params:
                 raise ValueError(
-                    "Parameter '%s' loaded from '%s' is not present in Dict, " \
-                    "which contains parameters %s. Set ignore_extra=True to ignore. "%(
-                        name, error_str, _brief_print_list(params.keys())))
+                    f"Parameter '{name}' loaded from '{error_str}' is not present in Dict, " \
+                    f"which contains parameters {_brief_print_list(params.keys())}. Set ignore_extra=True to ignore. ")
             if name in params:
                 param = loaded[name]
                 if isinstance(param, np.ndarray):
                     param = _mx_np.array(param) if is_np_array() else nd.array(param)
-                params[name]._load_init(param, ctx, cast_dtype=cast_dtype, dtype_source=dtype_source)
+                params[name]._load_init(param, device, cast_dtype=cast_dtype, dtype_source=dtype_source)
 
     def register_child(self, block, name=None):
         """Registers block as a child of self. :py:class:`Block` s assigned to self as
@@ -551,7 +553,8 @@ class Block:
         fn(self)
         return self
 
-    def initialize(self, init=initializer.Uniform(), ctx=None, verbose=False,
+    @wrap_ctx_to_device_func
+    def initialize(self, init=initializer.Uniform(), device=None, verbose=False,
                    force_reinit=False):
         """Initializes :py:class:`Parameter` s of this :py:class:`Block` and its children.
 
@@ -560,8 +563,8 @@ class Block:
         init : Initializer
             Global default Initializer to be used when :py:meth:`Parameter.init` is ``None``.
             Otherwise, :py:meth:`Parameter.init` takes precedence.
-        ctx : Context or list of Context
-            Keeps a copy of Parameters on one or many context(s).
+        device : Device or list of Device
+            Keeps a copy of Parameters on one or many device(s).
         verbose : bool, default False
             Whether to verbosely print out details on initialization.
         force_reinit : bool, default False
@@ -571,7 +574,7 @@ class Block:
         if verbose:
             init.set_verbosity(verbose=verbose)
         for v in params.values():
-            v.initialize(None, ctx, init, force_reinit=force_reinit)
+            v.initialize(None, device, init, force_reinit=force_reinit)
 
     def save(self, prefix):
         """Save the model architecture and parameters to load again later
@@ -731,7 +734,7 @@ class Block:
 
     def zero_grad(self):
         """Sets all Parameters' gradient buffer to 0."""
-        # collect gradient arrays for each ctx
+        # collect gradient arrays for each device
         arrays = defaultdict(list)
         params = self.collect_params()
         for p in params.values():
@@ -742,9 +745,9 @@ class Block:
                     ndarray.zeros_like(g, out=g)
                 else:
                     if is_np_array():
-                        arrays[g.ctx].append(g.as_nd_ndarray())
+                        arrays[g.device].append(g.as_nd_ndarray())
                     else:
-                        arrays[g.ctx].append(g)
+                        arrays[g.device].append(g)
 
         if len(arrays) == 0:
             return
@@ -752,18 +755,24 @@ class Block:
         for arr in arrays.values():
             ndarray.reset_arrays(*arr, num_arrays=len(arr))
 
-    def reset_ctx(self, ctx):
-        """Re-assign all Parameters to other contexts.
+    def reset_device(self, device):
+        """Re-assign all Parameters to other devices.
 
         Parameters
         ----------
-        ctx : Context or list of Context, default :py:meth:`context.current_context()`.
-            Assign Parameter to given context. If ctx is a list of Context, a
-            copy will be made for each context.
+        device : Device or list of Device, default :py:meth:`device.current_device()`.
+            Assign Parameter to given device. If device is a list of Device, a
+            copy will be made for each device.
         """
         params = self.collect_params()
         for i in params.values():
-            i.reset_ctx(ctx)
+            i.reset_device(device)
+
+    def reset_ctx(self, ctx):
+        """This function has been deprecated. Please refer to ``Block.reset_device``."""
+        warnings.warn('Block.reset_ctx has been renamed to'
+                      ' Block.reset_device', DeprecationWarning)
+        self.reset_device(ctx)
 
     def setattr(self, name, value):
         """Set an attribute to a new value for all Parameters.
@@ -937,7 +946,7 @@ class Block:
                 class_name = block.__class__.__name__
                 block_idx = len(summary) - 1
 
-                m_key = '%s-%i' % (class_name, block_idx+1)
+                m_key = f'{class_name}-{block_idx+1}'
                 summary[m_key] = OrderedDict()
                 summary[m_key]['output_shape'] = _get_shape_str(outputs)
 
@@ -1013,9 +1022,9 @@ class HybridBlock(Block):
                 return mx.npx.relu(self.dense1(x))
 
         model = Model()
-        model.initialize(ctx=mx.cpu(0))
+        model.initialize(device=mx.cpu(0))
         model.hybridize()
-        model(mx.np.zeros((10, 10), ctx=mx.cpu(0)))
+        model(mx.np.zeros((10, 10), device=mx.cpu(0)))
 
     Forward computation in :py:class:`HybridBlock` must be static to work with :py:class:`Symbol` s,
     i.e. you cannot call :py:meth:`NDArray.asnumpy`, :py:attr:`NDArray.shape`,
@@ -1036,6 +1045,32 @@ class HybridBlock(Block):
         `Hybridize - A Hybrid of Imperative and Symbolic Programming
         <https://mxnet.apache.org/versions/master/api/python/docs/tutorials/packages/gluon/blocks/hybridize.html>`_
     """
+    class OptConstraint:
+        class Flag(enum.Flag):
+            DisableAMP = enum.auto()
+
+        def __init__(self, flag) -> None:
+            self.flag = flag
+            self.enter_state = None
+
+        def __enter__(self):
+            self.enter_state = HybridBlock.OptConstraint.Flag(get_optimization_constraints())
+            target_state = self.enter_state | self.flag
+            set_optimization_constraints(target_state)
+
+        def __exit__(self, ptype, value, trace):
+            set_optimization_constraints(self.enter_state)
+
+        @staticmethod
+        def disable_all():
+            opt_flag = HybridBlock.OptConstraint.Flag()
+            for flag in HybridBlock.OptConstraint.Flag:
+                opt_flag |= flag
+
+        @staticmethod
+        def disable_amp():
+            return HybridBlock.OptConstraint(HybridBlock.OptConstraint.Flag.DisableAMP)
+
     def __init__(self):
         super(HybridBlock, self).__init__()
         assert hasattr(self, "hybrid_forward") is False, (
@@ -1065,6 +1100,10 @@ class HybridBlock(Block):
                 self._active = False
             self._clear_cached_op()
 
+    @staticmethod
+    def generate_arg_names(arg_num):
+        return ['data'] if arg_num == 1 else ['data{}'.format(i) for i in range(arg_num)]
+
     def _get_graph(self, *args):
         if not self._cached_graph:
             flatten_args, self._in_format = _flatten(args, "input")
@@ -1073,10 +1112,7 @@ class HybridBlock(Block):
             if len(real_args) == 0:
                 raise ValueError('All args are None and we do not support such a case.'
                                  ' Received args={}'.format(args))
-            if len(real_args) == 1:
-                arg_names = ['data']
-            else:
-                arg_names = ['data{}'.format(i) for i, ele in enumerate(real_args)]
+            arg_names = HybridBlock.generate_arg_names(len(real_args))
             symbol_inputs = [
                 symbol.var(name).as_np_ndarray()
                 if isinstance(arg, _mx_np.ndarray) else symbol.var(name)
@@ -1102,20 +1138,20 @@ class HybridBlock(Block):
         expected_names = set(input_names)
         for name in expected_names:
             assert name in param_names or name in data_names, \
-                "Unknown input to HybridBlock: %s" %name
+                f"Unknown input to HybridBlock: {name}"
 
         used_data_names = [i for i in data_names if i in expected_names]
         if len(used_data_names) != len(data_names):
-            unused = ', '.join(['%d-th'%i for name, i in data_names.items()
+            unused = ', '.join([f'{i}-th' for name, i in data_names.items()
                                 if name not in expected_names])
-            warnings.warn("The %s input to HybridBlock is not used by any "
-                          "computation. Is this intended?"%unused, stacklevel=4)
+            warnings.warn(f"The {unused} input to HybridBlock is not used by "
+                          "any computation. Is this intended?", stacklevel=4)
 
         used_param_names = [i for i in param_names if i in expected_names]
         if len(used_param_names) != len(param_names):
             unused = ', '.join(list(param_names - set(used_param_names)))
-            warnings.warn("Parameter %s is not used by any computation. "
-                          "Is this intended?"%unused, stacklevel=4)
+            warnings.warn(f"Parameter {unused} is not used by any computation. "
+                          "Is this intended?", stacklevel=4)
 
         args, _ = _flatten(args, "input")
         try:
@@ -1130,9 +1166,9 @@ class HybridBlock(Block):
 
         arg_dict, aux_dict = dict(), dict()
         if self._backend:
-            # set context for inputs
-            _, _, ctx_set, _ = _gather_type_ctx_info(list(args))
-            ctx = ctx_set.pop() if len(ctx_set) > 0 else None
+            # set device for inputs
+            _, _, device_set, _ = _gather_type_device_info(list(args))
+            device = device_set.pop() if len(device_set) > 0 else None
             # get list of params in the order of out.list_arguments
             input_shapes = dict()
             for name in out.list_arguments():
@@ -1158,7 +1194,7 @@ class HybridBlock(Block):
                     aux_dict[name] = params[name].data()
 
             # Partition the graph
-            out = out.optimize_for(self._backend, arg_dict, aux_dict, ctx, input_shapes, **self._backend_opts)
+            out = out.optimize_for(self._backend, arg_dict, aux_dict, device, input_shapes, **self._backend_opts)
 
             #update cached graph with partitioned graph
             if update_graph:
@@ -1198,7 +1234,7 @@ class HybridBlock(Block):
                     param = Parameter(name, dtype=param_data.dtype)
                     param._var_name = name
                     serialization_name = name  # HybridBlock.export
-                    param._load_init(param_data, param_data.context)
+                    param._load_init(param_data, param_data.device)
                 triple = (False, serialization_name, param)
 
             self._cached_op_args.append(triple)
@@ -1235,7 +1271,7 @@ class HybridBlock(Block):
         assert self._cached_op, "Gluon failed to build the cache. " \
                                 "This should never happen. " \
                                 "Please submit an issue on Github" \
-                                " https://github.com/apache/incubator-mxnet."
+                                " https://github.com/apache/mxnet."
         if self._callback:
             self._cached_op._register_op_hook(self._callback, self._monitor_all)
             if len(self._flags) >= 2 and (self._flags[1] or self._flags[0]):
@@ -1334,22 +1370,22 @@ class HybridBlock(Block):
                            inline_limit, forward_bulk_size, backward_bulk_size)
 
         # do part of forward API call
-        has_symbol, has_ndarray, ctx_set, _ = _gather_type_ctx_info([x] + list(args))
+        has_symbol, has_ndarray, device_set, _ = _gather_type_device_info([x] + list(args))
         if not has_symbol and not has_ndarray:
             raise ValueError('In HybridBlock, there must be one NDArray or one Symbol in the input.'
                              ' Please check the type of the args.\n')
-        if len(ctx_set) > 1:
-            raise ValueError('Found multiple contexts in the input, '
+        if len(device_set) > 1:
+            raise ValueError('Found multiple devices in the input, '
                              'After hybridized, the HybridBlock only supports one input '
-                             'context. You can print the ele.ctx in the '
-                             'input arguments to inspect their contexts. '
-                             'Find all contexts = {}'.format(ctx_set))
+                             'device. You can print the ele.device in the '
+                             'input arguments to inspect their devices. '
+                             'Find all devices = {}'.format(device_set))
 
         self._build_cache(x, *args)
         assert self._cached_op, "Gluon failed to build the cache. " \
                                 "This should never happen. " \
                                 "Please submit an issue on Github" \
-                                " https://github.com/apache/incubator-mxnet."
+                                " https://github.com/apache/mxnet."
         # do not actually call the cached_op
 
         self._first_forward = True
@@ -1366,9 +1402,8 @@ class HybridBlock(Block):
         if not isinstance(block, HybridBlock):
             raise ValueError(
                 "Children of HybridBlock must also be HybridBlock, " \
-                "but %s has type %s. If you are using Sequential, " \
-                "please try HybridSequential instead."%(
-                    str(block), str(type(block))))
+                f"but {str(block)} has type {str(type(block))}. If you are using Sequential, " \
+                "please try HybridSequential instead.")
         super(HybridBlock, self).register_child(block, name)
         if self._active:
             warnings.warn("Currently the model has been hybridized. Automatically deactivate the hybridization \
@@ -1511,8 +1546,9 @@ class HybridBlock(Block):
         for var in sym.get_inputs():
             if var.name in rename_map:
                 var._set_attr(name=rename_map[var.name])
-
-        sym_filename = '%s-symbol.json' % (path if path is not None else "")
+        
+        path_string = path if path is not None else ""
+        sym_filename = f'{path_string}-symbol.json'
         if path is not None:
             sym.save(sym_filename, remove_amp_cast=remove_amp_cast)
 
@@ -1528,8 +1564,8 @@ class HybridBlock(Block):
                         warnings.warn('Parameter "{name}" is not found in the graph. '
                                       .format(name=name), stacklevel=3)
                     else:
-                        arg_dict['aux:%s'%name] = param._reduce()
-        params_filename = '%s-%04d.params'%((path if path is not None else ""), epoch)
+                        arg_dict[f'aux:{name}'] = param._reduce()
+        params_filename = f'{path_string}-{epoch:04d}.params'
 
         if path is not None:
             if is_np_array():
@@ -1540,7 +1576,6 @@ class HybridBlock(Block):
 
         if remove_amp_cast:
             handle = SymbolHandle()
-            import ctypes
             check_call(_LIB.MXSymbolRemoveAmpCast(sym.handle, ctypes.byref(handle)))
             sym = type(sym)(handle)
         return sym, arg_dict
@@ -1561,7 +1596,6 @@ class HybridBlock(Block):
         """
         def c_callback(name, op_name, array):
             """wrapper for user callback"""
-            import ctypes
             array = ctypes.cast(array, NDArrayHandle)
             array = NDArray(array, writable=False)
             name = py_str(name)
@@ -1580,18 +1614,18 @@ class HybridBlock(Block):
             'Must define {name}.forward. '
             'Defining {name}.hybrid_forward is deprecated.'.format(name=type(self).__name__))
 
-        _, has_ndarray, ctx_set, first_ctx = _gather_type_ctx_info([x] + list(args))
+        _, has_ndarray, device_set, first_device = _gather_type_device_info([x] + list(args))
         if not has_ndarray:
             raise ValueError('In HybridBlock, there must be one NDArray in the input.'
                              ' Please check the type of the args.\n')
         if self._active and not dc.is_deferred_compute():
             # Do not call CachedOp if not hybridized or inside deferred compute mode.
-            if len(ctx_set) > 1:
-                raise ValueError('Find multiple contexts in the input, '
+            if len(device_set) > 1:
+                raise ValueError('Find multiple devices in the input, '
                                  'After hybridized, the HybridBlock only supports one input '
-                                 'context. You can print the ele.ctx in the '
-                                 'input arguments to inspect their contexts. '
-                                 'Find all contexts = {}'.format(ctx_set))
+                                 'device. You can print the ele.device in the '
+                                 'input arguments to inspect their devices. '
+                                 'Find all devices = {}'.format(device_set))
 
         if not self._called_infer_shape_already:
             self.infer_shape(x, *args)
@@ -1608,7 +1642,7 @@ class HybridBlock(Block):
             # HybridBlock is a child block of a HybridBlock that has been hybridized.
             return super().__call__(x, *args)
 
-        with first_ctx:
+        with first_device:
             return self._call_cached_op(x, *args)
 
     def forward(self, x, *args):
@@ -1617,23 +1651,30 @@ class HybridBlock(Block):
 
         raise NotImplementedError
 
-    def reset_ctx(self, ctx):
-        """Re-assign all Parameters to other contexts. If the Block is hybridized, it will reset the _cached_op_args.
+    def reset_device(self, device):
+        """Re-assign all Parameters to other devices. If the Block is hybridized, it will reset the _cached_op_args.
 
         Parameters
         ----------
-        ctx : Context or list of Context, default :py:meth:`context.current_context()`.
-            Assign Parameter to given context. If ctx is a list of Context, a
-            copy will be made for each context.
+        device : Device or list of Device, default :py:meth:`device.current_device()`.
+            Assign Parameter to given device. If device is a list of Device, a
+            copy will be made for each device.
         """
         params = self.collect_params()
         if self._cached_op:
             for p in self._cached_op_args:
                 # resetting parameters creating by the partitioning backend
                 if p.name not in params:
-                    p.reset_ctx(ctx)
+                    p.reset_device(device)
         for p in params.values():
-            p.reset_ctx(ctx)
+            p.reset_device(device)
+
+    def reset_ctx(self, ctx):
+        """This function has been deprecated. Please refer to ``HybridBlock.reset_device``."""
+        warnings.warn('HybridBlock.reset_ctx has been renamed to'
+                      ' HybridBlock.reset_device', DeprecationWarning)
+        self.reset_device(ctx)
+
 
 class SymbolBlock(HybridBlock):
     """Construct block from symbol. This is useful for using pre-trained models
@@ -1653,7 +1694,7 @@ class SymbolBlock(HybridBlock):
     Examples
     --------
     >>> # To extract the feature from fc1 and fc2 layers of AlexNet:
-    >>> alexnet = gluon.model_zoo.vision.alexnet(pretrained=True, ctx=mx.cpu())
+    >>> alexnet = gluon.model_zoo.vision.alexnet(pretrained=True, device=mx.cpu())
     >>> inputs = mx.sym.var('data')
     >>> out = alexnet(inputs)
     >>> internals = out.get_internals()
@@ -1667,7 +1708,8 @@ class SymbolBlock(HybridBlock):
     >>> print(feat_model(x))
     """
     @staticmethod
-    def imports(symbol_file, input_names, param_file=None, ctx=None, allow_missing=False,
+    @wrap_ctx_to_device_func
+    def imports(symbol_file, input_names, param_file=None, device=None, allow_missing=False,
                 ignore_extra=False):
         """Import model previously saved by `gluon.HybridBlock.export`
         as a `gluon.SymbolBlock` for use in Gluon.
@@ -1680,8 +1722,8 @@ class SymbolBlock(HybridBlock):
             List of input variable names
         param_file : str, optional
             Path to parameter file.
-        ctx : Context, default None
-            The context to initialize `gluon.SymbolBlock` on.
+        device : Device, default None
+            The device to initialize `gluon.SymbolBlock` on.
         allow_missing : bool, default False
             Whether to silently skip loading parameters not represents in the file.
         ignore_extra : bool, default False
@@ -1719,7 +1761,7 @@ class SymbolBlock(HybridBlock):
             inputs = [symbol.var(i).as_np_ndarray() if is_np_array() else symbol.var(i) for i in input_names]
         ret = SymbolBlock(sym, inputs)
         if param_file is not None:
-            ret.load_parameters(param_file, ctx, allow_missing, ignore_extra, True, 'saved')
+            ret.load_parameters(param_file, device, allow_missing, ignore_extra, True, 'saved')
         return ret
 
     def __repr__(self):
@@ -1744,7 +1786,7 @@ class SymbolBlock(HybridBlock):
         input_names = set()
         for i in syms:
             assert len(i.get_internals().list_outputs()) == 1, \
-                "Input symbols must be variable, but %s is an output of operators"%str(i)
+                f"Input symbols must be variable, but {str(i)} is an output of operators"
             input_names.add(i.name)
 
         # check if any symbol is row_sparse
@@ -1753,8 +1795,8 @@ class SymbolBlock(HybridBlock):
         for i in out:
             for j in i.get_internals():
                 assert(j.attr("__storage_type__") != str(row_sparse_storage)), \
-                    "SymbolBlock doesn't support Parameter '%s' because its storage " \
-                    "type is 'row_sparse'." % j.name
+                    f"SymbolBlock doesn't support Parameter '{j.name}' because its storage " \
+                    "type is 'row_sparse'."
         if len(out) > 1:
             out = symbol.Group(out, _check_same_symbol_type(out))
         else:
@@ -1802,14 +1844,13 @@ class SymbolBlock(HybridBlock):
     def __call__(self, x, *args):
         """Calls forward. Only accepts positional arguments."""
         for hook in self._forward_pre_hooks.values():
-            hook(self, [x] + args)
+            hook(self, [x, *args])
 
         out = self.forward(x, *args)
 
         for hook in self._forward_hooks.values():
-            hook(self, [x] + args, out)
-        if _mx_npx.is_np_array():
-            _check_all_np_ndarrays(out)
+            hook(self, [x, *args], out)
+
         return out
 
     def forward(self, x, *args):
@@ -1818,12 +1859,12 @@ class SymbolBlock(HybridBlock):
                                'is not yet supported in Gluon 2.')
 
         if isinstance(x, NDArray):
-            with x.ctx:
+            with x.device:
                 return self._call_cached_op(x, *args)
 
         assert isinstance(x, Symbol), \
             "HybridBlock requires the first argument to forward be either " \
-            "Symbol or NDArray, but got %s"%type(x)
+            f"Symbol or NDArray, but got {type(x)}"
         args, in_fmt = _flatten([x] + list(args), "input")
         assert in_fmt == self._in_format, "Invalid input format"
         ret = copy.copy(self._cached_graph[1])
@@ -1838,7 +1879,7 @@ class SymbolBlock(HybridBlock):
     def cast(self, dtype):
         self._clear_cached_op()
         super(SymbolBlock, self).cast(dtype)
-        if np.dtype(dtype).name == 'float16':
+        if get_dtype_name(dtype) == 'float16':
             # correct BatchNorm types back to float32 due to its special requirement
             out = self._cached_graph[1]
             params_list = out.get_internals().list_inputs()
@@ -1926,3 +1967,15 @@ def _infer_param_types(in_params, out_params, arg_params, aux_params, default_dt
             aux_types.append(default_dtype)
 
     return (arg_types, aux_types)
+
+
+def set_optimization_constraints(state):
+    prev_state = ctypes.c_uint()
+    check_call(_LIB.MXSetOptimizationConstraints(ctypes.c_uint(state.value), ctypes.byref(prev_state)))
+    return HybridBlock.OptConstraint.Flag(prev_state.value)
+
+
+def get_optimization_constraints():
+    curr = ctypes.c_uint()
+    check_call(_LIB.MXGetOptimizationConstraints(ctypes.byref(curr)))
+    return HybridBlock.OptConstraint.Flag(curr.value)

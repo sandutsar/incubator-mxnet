@@ -18,7 +18,6 @@
  */
 
 /*!
- * Copyright (c) 2016 by Contributors
  * \file exec_pass.h
  * \brief All the execution related pass and data structures.
  */
@@ -31,6 +30,7 @@
 #include <mxnet/graph_attr_types.h>
 #include <nnvm/graph.h>
 #include <nnvm/graph_attr_types.h>
+#include <utility>
 #include <vector>
 #include <memory>
 #include <string>
@@ -41,33 +41,32 @@ namespace mxnet {
 namespace exec {
 
 template <typename Attr>
-using FAccessSubgraphAttr = std::function<std::tuple<const nnvm::ObjectPtr,
-                                          std::vector<Attr>,
-                                          std::vector<Attr>>
-                              (const NodeAttrs& attrs)>;
+using FAccessSubgraphAttr =
+    std::function<std::tuple<const nnvm::ObjectPtr, std::vector<Attr>, std::vector<Attr>>(
+        const NodeAttrs& attrs)>;
 
-using FAccessSubgraphShape = FAccessSubgraphAttr<mxnet::TShape>;
-using FAccessSubgraphType = FAccessSubgraphAttr<int>;
+using FAccessSubgraphShape       = FAccessSubgraphAttr<mxnet::TShape>;
+using FAccessSubgraphType        = FAccessSubgraphAttr<int>;
 using FAccessSubgraphStorageType = FAccessSubgraphAttr<int>;
 
 template <typename Attr>
-using FProvideSubgraphAttr = std::function<void (const NodeAttrs& attrs,
-                                                 const std::vector<nnvm::ObjectPtr> &nodes,
-                                                 const std::vector<std::vector<Attr>> &in_attrs,
-                                                 const std::vector<std::vector<Attr>> &out_attrs)>;
-using FProvideSubgraphShape = FProvideSubgraphAttr<mxnet::TShape>;
-using FProvideSubgraphType = FProvideSubgraphAttr<int>;
+using FProvideSubgraphAttr        = std::function<void(const NodeAttrs& attrs,
+                                                const std::vector<nnvm::ObjectPtr>& nodes,
+                                                const std::vector<std::vector<Attr>>& in_attrs,
+                                                const std::vector<std::vector<Attr>>& out_attrs)>;
+using FProvideSubgraphShape       = FProvideSubgraphAttr<mxnet::TShape>;
+using FProvideSubgraphType        = FProvideSubgraphAttr<int>;
 using FProvideSubgraphStorageType = FProvideSubgraphAttr<int>;
 
-using TIsFusion = bool;
+using TIsFusion       = bool;
 using TIsFusionHelper = bool;
 
 /*! \brief reuse graph definition */
 using nnvm::Graph;
 
-const int kBadStorageID = -1;
+const int kBadStorageID      = -1;
 const int kExternalStorageID = -2;
-const int kDynamicStorageID = -3;
+const int kDynamicStorageID  = -3;
 
 const int kNonDefaultStorage = -2;
 
@@ -86,6 +85,13 @@ class OpExecutor {
   std::vector<OpReqType> req;
   /*! \brief runtime op context, contains allocated resources */
   OpContext op_ctx;
+  /*! \brief attributes of the node */
+  NodeAttrs attrs;
+  /*! \brief dispatch mode of the executor */
+  DispatchMode dispatch_mode;
+
+  explicit OpExecutor(NodeAttrs attrs, DispatchMode dispatch_mode)
+      : attrs(std::move(attrs)), dispatch_mode(dispatch_mode) {}
   /*! \brief virtual destructor */
   virtual ~OpExecutor() {}
   /*!
@@ -100,6 +106,17 @@ class OpExecutor {
    * \param rctx The runtime context passed in by environment.
    */
   virtual void Run(RunContext rctx, bool is_gpu) = 0;
+  /*!
+   * \brief run the operators of a vector of execs, given runtime context on device.
+   *  This function call does not synchronize the stream.
+   * \param rctx The runtime context passed in by environment.
+   */
+  static void RunAll(const std::vector<std::shared_ptr<OpExecutor>>& execs,
+                     RunContext rctx,
+                     bool is_gpu) {
+    for (auto& exec : execs)
+      exec->Run(rctx, is_gpu);
+  }
   /*! \return the execution type */
   virtual ExecType exec_type() const = 0;
   /*! \return return engine variable for operator states */
@@ -120,7 +137,7 @@ class OpExecutor {
  * \brief per node vector of operator executors.
  * \note stored under attribute "op_exec"
  */
-using OpExecVector = std::vector<std::shared_ptr<OpExecutor> >;
+using OpExecVector = std::vector<std::shared_ptr<OpExecutor>>;
 
 /*!
  * \brief per node vector of operator states.
@@ -201,7 +218,7 @@ Graph DetectInplaceAddTo(Graph g);
  *
  * \return graph with common expressions eliminated
  */
-Graph EliminateCommonExpr(Graph && g);
+Graph EliminateCommonExpr(Graph&& g);
 
 /*!
  * \brief Fuse pointwise operations in the graph.
@@ -241,7 +258,7 @@ Graph InferShape(Graph&& graph,
  *         The index of ShapeVector is given by graph.indexed_graph().entry_id.
  */
 Graph InferType(Graph&& graph,
-                nnvm::DTypeVector&& dtype_inputs = nnvm::DTypeVector(),
+                nnvm::DTypeVector&& dtype_inputs  = nnvm::DTypeVector(),
                 const std::string& dtype_attr_key = "");
 
 /*!
@@ -254,7 +271,7 @@ Graph InferType(Graph&& graph,
  *         The index of StorageTypeVector is given by graph.indexed_graph().entry_id.
  */
 Graph InferStorageType(Graph&& graph,
-                       StorageTypeVector&& storage_type_inputs = StorageTypeVector(),
+                       StorageTypeVector&& storage_type_inputs  = StorageTypeVector(),
                        const std::string& storage_type_attr_key = "");
 
 }  // namespace exec
@@ -284,16 +301,18 @@ inline Graph MXGradient(
     std::vector<NodeEntry> xs,
     std::vector<NodeEntry> ys_out_grad,
     std::function<NodeEntry(std::vector<NodeEntry>&& inputs)> aggregate_fun = nullptr,
-    std::function<int(const Node& node)> mirror_fun = nullptr,
-    std::vector<const Op*> zero_ops = std::vector<const Op*>(),
-    std::string copy_op_str = std::string(),
+    std::function<int(const Node& node)> mirror_fun                         = nullptr,
+    std::vector<const Op*> zero_ops  = std::vector<const Op*>(),
+    std::string copy_op_str          = std::string(),
     mxnet::ShapeVector in_arg_shapes = mxnet::ShapeVector(),
-    DTypeVector in_arg_dtypes = DTypeVector()) {
-  graph.attrs["grad_ys"] = std::make_shared<any>(std::move(ys));
-  graph.attrs["grad_xs"] = std::make_shared<any>(std::move(xs));
+    DTypeVector in_arg_dtypes        = DTypeVector(),
+    std::vector<NodeEntry> us        = std::vector<NodeEntry>()) {
+  graph.attrs["grad_ys"]          = std::make_shared<any>(std::move(ys));
+  graph.attrs["grad_xs"]          = std::make_shared<any>(std::move(xs));
   graph.attrs["grad_ys_out_grad"] = std::make_shared<any>(std::move(ys_out_grad));
-  graph.attrs["in_arg_shapes"] = std::make_shared<any>(std::move(in_arg_shapes));
-  graph.attrs["in_arg_dtypes"] = std::make_shared<any>(std::move(in_arg_dtypes));
+  graph.attrs["in_arg_shapes"]    = std::make_shared<any>(std::move(in_arg_shapes));
+  graph.attrs["in_arg_dtypes"]    = std::make_shared<any>(std::move(in_arg_dtypes));
+  graph.attrs["grad_us"]          = std::make_shared<any>(std::move(us));
 
   if (aggregate_fun != nullptr) {
     graph.attrs["grad_aggregate_fun"] = std::make_shared<any>(aggregate_fun);

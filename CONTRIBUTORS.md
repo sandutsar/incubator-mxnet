@@ -1,21 +1,24 @@
-<!--- Licensed to the Apache Software Foundation (ASF) under one -->
-<!--- or more contributor license agreements.  See the NOTICE file -->
-<!--- distributed with this work for additional information -->
-<!--- regarding copyright ownership.  The ASF licenses this file -->
-<!--- to you under the Apache License, Version 2.0 (the -->
-<!--- "License"); you may not use this file except in compliance -->
-<!--- with the License.  You may obtain a copy of the License at -->
+<!--
+  ~ Licensed to the Apache Software Foundation (ASF) under one
+  ~ or more contributor license agreements.  See the NOTICE file
+  ~ distributed with this work for additional information
+  ~ regarding copyright ownership.  The ASF licenses this file
+  ~ to you under the Apache License, Version 2.0 (the
+  ~ "License"); you may not use this file except in compliance
+  ~ with the License.  You may obtain a copy of the License at
+  ~
+  ~   http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing,
+  ~ software distributed under the License is distributed on an
+  ~ "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+  ~ KIND, either express or implied.  See the License for the
+  ~ specific language governing permissions and limitations
+  ~ under the License.
+  ~
+-->
 
-<!---   http://www.apache.org/licenses/LICENSE-2.0 -->
-
-<!--- Unless required by applicable law or agreed to in writing, -->
-<!--- software distributed under the License is distributed on an -->
-<!--- "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY -->
-<!--- KIND, either express or implied.  See the License for the -->
-<!--- specific language governing permissions and limitations -->
-<!--- under the License. -->
-
-Contributors of Apache MXNet (incubating)
+Contributors of Apache MXNet
 =========================================
 Apache MXNet adopts the Apache way and governs by merit. We believe that it is important to create
 an inclusive community where everyone can use, contribute to, and influence the direction of
@@ -101,8 +104,9 @@ healthy project. The PPMC actively seeks to appoint new committers from the list
 * [Aaron Markham](https://github.com/aaronmarkham)
 * [Alex Zai](https://github.com/azai91)
 * [Anirudh Acharya](https://github.com/anirudhacharya)
-* [Anna Karbownik]((https://github.com/akarbown)
+* [Anna Karbownik](https://github.com/akarbown)
 * [Aston Zhang](https://github.com/astonzhang)
+* [Bartłomiej Gawrych](https://github.com/bgawrych)
 * [Chaitanya Bapat](https://github.com/ChaiBapchya)
 * [Ciyong Chen](https://github.com/ciyongch)
 * [Da Zheng](https://github.com/zheng-da)
@@ -139,7 +143,7 @@ healthy project. The PPMC actively seeks to appoint new committers from the list
 
 List of Contributors
 --------------------
-* [Top-100 Contributors](https://github.com/apache/incubator-mxnet/graphs/contributors)
+* [Top-100 Contributors](https://github.com/apache/mxnet/graphs/contributors)
   - To contributors: please add your name to the list when you submit a patch to the project:)
 * [Aditya Trivedi](https://github.com/iadi7ya)
 * [Feng Wang](https://github.com/happynear)
@@ -295,6 +299,10 @@ List of Contributors
 * [Bartosz Kuncer](https://github.com/bartekkuncer)
 * [Maria Boerner](https://github.com/mariaboerner1987)
 * [Zhenghui Jin](https://github.com/barry-jin)
+* [Dominika Jedynak](https://github.com/DominikaJedynak)
+* [Adam Grabowski](https://github.com/agrabows)
+* [Kacper Pietkun](https://github.com/Kacper-Pietkun)
+* [Hanna Jarlaczyńska](https://github.com/hankaj)
 
 Label Bot
 ---------
@@ -306,5 +314,5 @@ Label Bot
     - @mxnet-label-bot update [specify comma separated labels here]
       (i.e. @mxnet-label-bot update [Bug, Python])
 
-  - Available label names which are supported: [Labels](https://github.com/apache/incubator-mxnet/labels)
+  - Available label names which are supported: [Labels](https://github.com/apache/mxnet/labels)
   - For further details: [My Wiki Page](https://cwiki.apache.org/confluence/display/MXNET/Machine+Learning+Based+GitHub+Bot)

@@ -24,7 +24,7 @@ import numpy as np
 from mxnet import nd
 from mxnet.gluon import nn
 from mxnet.base import MXNetError
-from mxnet.test_utils import download, is_cd_run, assert_almost_equal, default_context
+from mxnet.test_utils import download, is_cd_run, assert_almost_equal, default_device
 import pytest
 
 base_path = os.path.join(os.path.dirname(__file__), "../../..")
@@ -42,13 +42,13 @@ def test_custom_op_gpu():
         elif os.path.exists(os.path.join(base_path, 'build/'+lib)):
             fname = os.path.join(base_path, 'build/'+lib)
         else:
-            raise MXNetError("library %s not found " % lib)
+            raise MXNetError(f"library {lib} not found ")
     elif (os.name=='nt'):
         lib = 'libcustomop_gpu_lib.dll'
         if os.path.exists('windows_package\\lib\\'+lib):
             fname = 'windows_package\\lib\\'+lib
         else:
-            raise MXNetError("library %s not found " % lib)
+            raise MXNetError(f"library {lib} not found ")
 
     fname = os.path.abspath(fname)
     # load the library containing gemm custom operators
@@ -100,7 +100,7 @@ def test_external_op():
     lib = 'libexternal_lib.so'
     fname = os.path.join(base_path,'example/extensions/lib_external_ops/build/'+lib)
     if not os.path.exists(fname):
-        raise MXNetError("library %s not found " % lib)
+        raise MXNetError(f"library {lib} not found ")
 
     fname = os.path.abspath(fname)
     mx.library.load(fname, False)

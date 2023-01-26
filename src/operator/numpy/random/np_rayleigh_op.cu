@@ -18,7 +18,6 @@
  */
 
 /*!
- * Copyright (c) 2019 by Contributors
  * \file np_rayleigh_op.cu
  * \brief Operator for numpy sampling from rayleigh distributions
  */
@@ -29,10 +28,12 @@ namespace mxnet {
 namespace op {
 
 NNVM_REGISTER_OP(_npi_rayleigh)
-.set_attr<FCompute>("FCompute<gpu>", NumpyRayleighForward<gpu>);
+    .set_attr<FIsCUDAGraphsCompatible>("FIsCUDAGraphsCompatible",
+                                       [](const NodeAttrs&, const bool) { return false; })
+    .set_attr<FCompute>("FCompute<gpu>", NumpyRayleighForward<gpu>);
 
 NNVM_REGISTER_OP(_backward_broadcast_rayleigh)
-.set_attr<FCompute>("FCompute<gpu>", RayleighReparamBackward<gpu>);
+    .set_attr<FCompute>("FCompute<gpu>", RayleighReparamBackward<gpu>);
 
 }  // namespace op
 }  // namespace mxnet

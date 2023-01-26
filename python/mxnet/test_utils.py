@@ -45,8 +45,8 @@ except ImportError:
     # in rare cases requests may be not installed
     pass
 import mxnet as mx
-from .context import current_context
-from .ndarray.ndarray import _STORAGE_TYPE_STR_TO_ID
+from .device import current_device
+from .ndarray.ndarray import _STORAGE_TYPE_STR_TO_ID, get_dtype_name
 from .symbol import Symbol
 from .symbol.numpy import _Symbol as np_symbol
 from .util import use_np, use_np_default_dtype, getenv, setenv  # pylint: disable=unused-import
@@ -55,16 +55,16 @@ from .runtime import Features
 from .numpy_extension import get_cuda_compute_capability
 
 
-def default_context():
-    """Get default context for regression test."""
-    # _TODO: get context from environment variable to support
+def default_device():
+    """Get default device for regression test."""
+    # _TODO: get device from environment variable to support
     # testing with GPUs
-    return current_context()
+    return current_device()
 
 
-def set_default_context(ctx):
-    """Set default context."""
-    mx.context._current.set(ctx)
+def set_default_device(device):
+    """Set default device."""
+    mx.device._current.set(device)
 
 
 def default_dtype():
@@ -112,29 +112,29 @@ def effective_dtype(dat):
     ----------
     dat : np.ndarray or mx.nd.array or mx.np.ndarray
     """
-    # On arch 80 gpus, a float32-io gemm or conv op will trim the mantissa of data
-    # inputs to be of comparable precision to a float16, so float16 becomes the
+    # On arch 80 gpus or later, a float32-io gemm or conv op will trim the mantissa of
+    # data inputs to be of comparable precision to a float16, so float16 becomes the
     # 'effective dtype' for tolerance tests involving such op outputs.
 
-    # Is TF32 enabled in the ctx (the default on arch 80 GPUs)
-    def is_TF32_enabled(ctx):
+    # Is TF32 enabled in the device (the default on arch 80 GPUs)
+    def is_TF32_enabled(device):
         try:
-            return (ctx.device_type == 'gpu' and
-                    get_cuda_compute_capability(ctx) == 80 and
+            return (device.device_type == 'gpu' and
+                    get_cuda_compute_capability(device) >= 80 and
                     os.environ.get('NVIDIA_TF32_OVERRIDE') != '0')
         except:  # pylint: disable=bare-except
             return False
 
-    ctx = dat.ctx if hasattr(dat, 'ctx') else None
+    device = dat.device if hasattr(dat, 'device') else None
     dtype = np.dtype(dat.dtype)
-    if dtype == np.dtype(np.float32) and is_TF32_enabled(ctx):
+    if dtype == np.dtype(np.float32) and is_TF32_enabled(device):
         return np.dtype(np.float16)
     else:
         return dtype
 
 
 def get_tolerance(dat, tol, default_tol):
-    """ Return the tolerance to be used for dat comparisons based on the given tol, datatype and context.
+    """ Return the tolerance to be used for dat comparisons based on the given tol, datatype and device.
     Parameters
     ----------
     dat : np.ndarray or mx.nd.array or mx.np.ndarray
@@ -236,11 +236,10 @@ def _validate_csr_generation_inputs(num_rows, num_cols, density,
 
     if distribution == "powerlaw":
         if total_nnz < 2 * num_rows:
-            raise ValueError("not supported for this density: %s"
-                             " for this shape (%s, %s)"
+            raise ValueError(f"not supported for this density: {density}"
+                             f" for this shape ({num_rows}, {num_cols})"
                              " Please keep :"
-                             " num_rows * num_cols * density >= 2 * num_rows"
-                             % (density, num_rows, num_cols))
+                             " num_rows * num_cols * density >= 2 * num_rows")
 
 
 def shuffle_csr_column_indices(csr):
@@ -332,8 +331,8 @@ def _get_powerlaw_dataset_csr(num_rows, num_cols, density=0.1, dtype=None):
         col_max = col_max * 2
 
     if unused_nnz > 0:
-        raise ValueError("not supported for this density: %s"
-                         " for this shape (%s,%s)" % (density, num_rows, num_cols))
+        raise ValueError(f"not supported for this density: {density}"
+                         f" for this shape ({num_rows},{num_cols})")
 
     return mx.nd.array(output_arr).tostype("csr")
 
@@ -437,13 +436,13 @@ def rand_sparse_ndarray(shape, stype, density=None, dtype=None, distribution=Non
     >>> assert(row4nnz == 2*row3nnz)
 
     """
-    ctx = ctx if ctx else default_context()
+    ctx = ctx if ctx else default_device()
     density = rnd.rand() if density is None else density
     dtype = default_dtype() if dtype is None else dtype
     distribution = "uniform" if distribution is None else distribution
     if stype == 'row_sparse':
         assert (distribution == "uniform"), \
-               "Distribution %s not supported for row_sparse" % (distribution)
+               f"Distribution {distribution} not supported for row_sparse"
         # sample index
         if rsp_indices is not None:
             indices = rsp_indices
@@ -476,7 +475,7 @@ def rand_sparse_ndarray(shape, stype, density=None, dtype=None, distribution=Non
             csr = _get_powerlaw_dataset_csr(shape[0], shape[1], density=density, dtype=dtype).as_in_context(ctx)
             return csr, (csr.indptr, csr.indices, csr.data)
         else:
-            assert(False), "Distribution not supported: %s" % (distribution)
+            assert(False), f"Distribution not supported: {distribution}"
             return False
     else:
         assert(False), "unknown storage type"
@@ -485,7 +484,7 @@ def rand_sparse_ndarray(shape, stype, density=None, dtype=None, distribution=Non
 def rand_ndarray(shape, stype='default', density=None, dtype=None, modifier_func=None,
                  shuffle_csr_indices=False, distribution=None, ctx=None):
     """Generate a random sparse ndarray. Returns the generated ndarray."""
-    ctx = ctx if ctx else default_context()
+    ctx = ctx if ctx else default_device()
     if stype == 'default':
         arr = mx.nd.array(random_arrays(shape), dtype=dtype, ctx=ctx)
     else:
@@ -650,9 +649,7 @@ def locationError(a, b, index, names, maxError=False):
         Flag indicating that maximum error is reporting.
     """
     maximum = "maximum " if maxError else ""
-    return "Location of %serror: %s, %s=%.8f, %s=%.8f" \
-            % (maximum, str(index), names[0], a[index], names[1], b[index])
-
+    return f"Location of {maximum} error: {str(index)}, {names[0]}={a[index]:.8f}, {names[1]}={b[index]:.8f}"
 def assert_almost_equal(a, b, rtol=None, atol=None, names=('a', 'b'), equal_nan=False,
                         use_broadcast=True, mismatches=(10, 10)):
     """Test that two numpy arrays are almost equal. Raise exception message if not.
@@ -683,7 +680,7 @@ def assert_almost_equal(a, b, rtol=None, atol=None, names=('a', 'b'), equal_nan=
         b = b.asnumpy()
     use_np_allclose = isinstance(a, np.ndarray) and isinstance(b, np.ndarray)
     if not use_np_allclose:
-        if not (hasattr(a, 'ctx') and hasattr(b, 'ctx') and a.ctx == b.ctx and a.dtype == b.dtype):
+        if not (hasattr(a, 'ctx') and hasattr(b, 'ctx') and a.device == b.device and a.dtype == b.dtype):
             use_np_allclose = True
             if isinstance(a, mx.nd.NDArray):
                 a = a.asnumpy()
@@ -716,7 +713,7 @@ def assert_almost_equal(a, b, rtol=None, atol=None, names=('a', 'b'), equal_nan=
         i = 1
         while i <= a.size:
             if i <= mismatches[0]:
-                print("%3d: Error %f  %s" %(i, rel, locationError(a, b, index, names)))
+                print(f"{i:3d}: Error {rel}  {locationError(a, b, index, names)}")
 
             aTmp[index] = bTmp[index] = 0
             if almost_equal(aTmp, bTmp, rtol, atol, equal_nan=equal_nan):
@@ -729,11 +726,11 @@ def assert_almost_equal(a, b, rtol=None, atol=None, names=('a', 'b'), equal_nan=
                 break
 
         mismatchDegree = "at least " if mismatches[1] > 0 and i > mismatches[1] else ""
-        errMsg = "Error %f exceeds tolerance rtol=%e, atol=%e (mismatch %s%f%%).\n%s" % \
-                 (relErr, rtol, atol, mismatchDegree, 100*i/a.size, \
-                  locationError(a, b, indexErr, names, maxError=True))
+        errMsg = f"Error {relErr} exceeds tolerance rtol={rtol:e}, atol={atol:e} " \
+                 f"(mismatch {mismatchDegree}{100*i/a.size}%).\n" \
+                 f"{locationError(a, b, indexErr, names, maxError=True)}"
     else:
-        errMsg = "Error %f exceeds tolerance rtol=%e, atol=%e.\n" % (rel, rtol, atol)
+        errMsg = f"Error {rel} exceeds tolerance rtol={rtol:e}, atol={atol:e}.\n"
 
     np.set_printoptions(threshold=4, suppress=True)
     msg = npt.build_err_msg([a, b], err_msg=errMsg)
@@ -787,7 +784,7 @@ def assert_almost_equal_with_err(a, b, rtol=None, atol=None, etol=None,
             i = 1
             while i <= a.size:
                 if i <= mismatches[0]:
-                    print("%3d: Error %f  %s" %(i, rel, locationError(a, b, index, names)))
+                    print(f"{i:3d}: Error {rel}  {locationError(a, b, index, names)}")
 
                 aTmp[index] = bTmp[index] = 0
                 if almost_equal(aTmp, bTmp, rtol, atol, equal_nan=equal_nan):
@@ -800,9 +797,9 @@ def assert_almost_equal_with_err(a, b, rtol=None, atol=None, etol=None,
                     break
 
             mismatchDegree = "at least " if mismatches[1] > 0 and i > mismatches[1] else ""
-            errMsg = "Error %f exceeds tolerance rtol=%e, atol=%e (mismatch %s%f%%).\n%s" % \
-                    (relErr, rtol, atol, mismatchDegree, 100*i/a.size, \
-                    locationError(a, b, indexErr, names, maxError=True))
+            errMsg = f"Error {relErr} exceeds tolerance rtol={rtol:e}, atol={atol:e} " \
+                     f"(mismatch {mismatchDegree}{100*i/a.size}%).\n" \
+                     f"{locationError(a, b, indexErr, names, maxError=True)}"
             np.set_printoptions(threshold=4, suppress=True)
             msg = npt.build_err_msg([a, b], err_msg=errMsg)
             raise AssertionError(msg)
@@ -862,7 +859,7 @@ def _parse_location(sym, location, ctx, dtype=default_dtype()):
         - if type is dict of str -> `np.ndarray`
             maps the name of arguments to the corresponding `np.ndarray`.
         *In either case, value of all the arguments must be provided.*
-    ctx : Context
+    ctx : Device
         Device context.
     dtype: "asnumpy" or np.float16 or np.float32 or np.float64
         If dtype is "asnumpy" then the mx.nd.array created will have the same
@@ -894,8 +891,7 @@ def _parse_location(sym, location, ctx, dtype=default_dtype()):
     if isinstance(location, dict):
         if set(location.keys()) != set(sym.list_arguments()):
             raise ValueError("Symbol arguments and keys of the given location do not match."
-                             "symbol args:%s, location.keys():%s"
-                             % (str(set(sym.list_arguments())), str(set(location.keys()))))
+                             f"symbol args:{str(set(sym.list_arguments()))}, location.keys():{str(set(location.keys()))}")
     else:
         location = {k: v for k, v in zip(sym.list_arguments(), location)}
     location = {k: mx.nd.array(v, ctx=ctx, dtype=v.dtype if dtype == "asnumpy" else dtype) \
@@ -922,7 +918,7 @@ def _parse_aux_states(sym, aux_states, ctx, dtype=default_dtype()):
         - if type is dict of str -> `np.ndarray`
             maps the name of arguments to the corresponding `np.ndarray`.
         *In either case, all aux states of `sym` must be provided.*
-    ctx : Context
+    ctx : Device
         Device context.
     dtype: "asnumpy" or np.float16 or np.float32 or np.float64
         If dtype is "asnumpy" then the mx.nd.array created will have the same
@@ -957,9 +953,7 @@ def _parse_aux_states(sym, aux_states, ctx, dtype=default_dtype()):
         if isinstance(aux_states, dict):
             if set(aux_states.keys()) != set(sym.list_auxiliary_states()):
                 raise ValueError("Symbol aux_states names and given aux_states do not match."
-                                 "symbol aux_names:%s, aux_states.keys:%s"
-                                 % (str(set(sym.list_auxiliary_states())),
-                                    str(set(aux_states.keys()))))
+                                 f"symbol aux_names:{str(set(sym.list_auxiliary_states()))}, aux_states.keys:{str(set(aux_states.keys()))}")
         elif isinstance(aux_states, (list, tuple)):
             aux_names = sym.list_auxiliary_states()
             aux_states = {k:v for k, v in zip(aux_names, aux_states)}
@@ -1087,7 +1081,7 @@ def check_numeric_gradient(sym, location, aux_states=None, numeric_eps=None, rto
     """
     assert dtype in (np.float16, np.float32, np.float64)
     if ctx is None:
-        ctx = default_context()
+        ctx = default_device()
 
     def random_projection(shape):
         """Get a random weight matrix with not too small elements
@@ -1156,7 +1150,7 @@ def check_numeric_gradient(sym, location, aux_states=None, numeric_eps=None, rto
     inps = executor.arg_arrays
     if len(inps) != len(location):
         raise ValueError("Executor arg_arrays and and location len do not match."
-                         "Got %d inputs and %d locations"%(len(inps), len(location)))
+                         f"Got {len(inps)} inputs and {len(location)} locations")
 
     executor.forward(is_train=True)
     assert len(executor.outputs) == 1
@@ -1179,16 +1173,16 @@ def check_numeric_gradient(sym, location, aux_states=None, numeric_eps=None, rto
         sym_grad = symbolic_grads[name]
         if grad_req[name] == 'write':
             assert_almost_equal(fd_grad, sym_grad, rtol, atol,
-                                ("NUMERICAL_%s"%name, "BACKWARD_%s"%name))
+                                (f"NUMERICAL_{name}", f"BACKWARD_{name}"))
         elif grad_req[name] == 'add':
             if isinstance(sym_grad, mx.nd.NDArray):
                 sym_grad = sym_grad.asnumpy()
             assert_almost_equal(fd_grad, sym_grad - orig_grad, rtol, atol,
-                                ("NUMERICAL_%s"%name, "BACKWARD_%s"%name))
+                                (f"NUMERICAL_{name}", f"BACKWARD_{name}"))
         elif grad_req[name] == 'null':
             assert sym_grad is None
         else:
-            raise ValueError("Invalid grad_req %s for argument %s"%(grad_req[name], name))
+            raise ValueError(f"Invalid grad_req {grad_req[name]} for argument {name}")
 
 
 def check_symbolic_forward(sym, location, expected, rtol=None, atol=None,
@@ -1224,7 +1218,7 @@ def check_symbolic_forward(sym, location, expected, rtol=None, atol=None,
             Contains all the NumPy arrays corresponding to sym.list_auxiliary_states
         - if type is dict of str to np.ndarray
             Contains the mapping between names of auxiliary states and their values.
-    ctx : Context, optional
+    device : Device, optional
         running context
     dtype: "asnumpy" or np.float16 or np.float32 or np.float64
         If dtype is "asnumpy" then the mx.nd.array created will have the same
@@ -1248,7 +1242,7 @@ def check_symbolic_forward(sym, location, expected, rtol=None, atol=None,
     """
     assert dtype == "asnumpy" or dtype in (np.float16, np.float32, np.float64)
     if ctx is None:
-        ctx = default_context()
+        ctx = default_device()
 
     location = _parse_location(sym=sym, location=location, ctx=ctx, dtype=dtype)
     aux_states = _parse_aux_states(sym=sym, aux_states=aux_states, ctx=ctx,
@@ -1270,7 +1264,7 @@ def check_symbolic_forward(sym, location, expected, rtol=None, atol=None,
     outputs = executor.outputs
     for output_name, expect, output in zip(sym.list_outputs(), expected, outputs):
         assert_almost_equal(expect, output, rtol, atol,
-                            ("EXPECTED_%s"%output_name, "FORWARD_%s"%output_name),
+                            (f"EXPECTED_{output_name}", f"FORWARD_{output_name}"),
                             equal_nan=equal_nan)
     return executor.outputs
 
@@ -1330,7 +1324,7 @@ def check_symbolic_backward(sym, location, out_grads, expected, rtol=None, atol=
     >>> mat2 = np.array([[5, 6], [7, 8]])
     >>> grad1 = mx.nd.zeros(shape)
     >>> grad2 = mx.nd.zeros(shape)
-    >>> exec_add = sym_add._bind(default_context(), args={'lhs': mat1, 'rhs': mat2},
+    >>> exec_add = sym_add._bind(default_device(), args={'lhs': mat1, 'rhs': mat2},
     ... args_grad={'lhs': grad1, 'rhs': grad2}, grad_req={'lhs': 'write', 'rhs': 'write'})
     >>> exec_add.forward(is_train=True)
     >>> ograd = mx.nd.ones(shape)
@@ -1339,7 +1333,7 @@ def check_symbolic_backward(sym, location, out_grads, expected, rtol=None, atol=
     """
     assert dtype == 'asnumpy' or dtype in (np.float16, np.float32, np.float64)
     if ctx is None:
-        ctx = default_context()
+        ctx = default_device()
 
     location = _parse_location(sym=sym, location=location, ctx=ctx, dtype=dtype)
     aux_states = _parse_aux_states(sym=sym, aux_states=aux_states, ctx=ctx,
@@ -1399,19 +1393,19 @@ def check_symbolic_backward(sym, location, out_grads, expected, rtol=None, atol=
     for name in expected:
         if grad_req[name] == 'write':
             assert_almost_equal(expected[name], grads[name], rtol, atol,
-                                ("EXPECTED_%s"%name, "BACKWARD_%s"%name),
+                                (f"EXPECTED_{name}", f"BACKWARD_{name}"),
                                 equal_nan=equal_nan)
         elif grad_req[name] == 'add':
             grad = grads[name].asnumpy() if isinstance(grads[name], mx.nd.NDArray) else grads[name]
             assert_almost_equal(expected[name], grad - args_grad_npy[name],
-                                rtol, atol, ("EXPECTED_%s"%name, "BACKWARD_%s"%name),
+                                rtol, atol, (f"EXPECTED_{name}", f"BACKWARD_{name}"),
                                 equal_nan=equal_nan)
         elif grad_req[name] == 'null':
             assert_almost_equal(args_grad_npy[name], grads[name],
-                                rtol, atol, ("EXPECTED_%s"%name, "BACKWARD_%s"%name),
+                                rtol, atol, (f"EXPECTED_{name}", f"BACKWARD_{name}"),
                                 equal_nan=equal_nan)
         else:
-            raise ValueError("Invalid grad_req %s for argument %s"%(grad_req[name], name))
+            raise ValueError(f"Invalid grad_req {grad_req[name]} for argument {name}")
     return args_grad_data
 
 def check_speed(sym, location=None, ctx=None, N=20, grad_req=None, typ="whole",
@@ -1439,7 +1433,7 @@ def check_speed(sym, location=None, ctx=None, N=20, grad_req=None, typ="whole",
             Only test the forward speed.
     """
     if ctx is None:
-        ctx = default_context()
+        ctx = default_device()
 
     if grad_req is None:
         grad_req = 'write'
@@ -1448,7 +1442,7 @@ def check_speed(sym, location=None, ctx=None, N=20, grad_req=None, typ="whole",
         location = {k: np.random.normal(size=arr.shape, scale=1.0) for k, arr in
                     exe.arg_dict.items()}
     else:
-        assert isinstance(location, dict), "Expect dict, get \"location\"=%s" %str(location)
+        assert isinstance(location, dict), f'Expect dict, get "location"={str(location)}'
         exe = sym._simple_bind(grad_req=grad_req, ctx=ctx,
                                **{k: v.shape for k, v in location.items()})
 
@@ -1584,7 +1578,7 @@ def check_consistency(sym, ctx_list, scale=1.0, grad_req='write',
             else:
                 arg_params[n] = np.random.normal(size=arr.shape,
                                                  scale=scale).astype(rand_type)
-    for n, arr in exe_list[0].aux_dict.items():
+    for n in exe_list[0].aux_dict:
         if n not in aux_params:
             aux_params[n] = 0
     for exe in exe_list:
@@ -1617,7 +1611,7 @@ def check_consistency(sym, ctx_list, scale=1.0, grad_req='write',
             try:
                 assert_almost_equal(arr, gtarr, rtol=rtol, atol=atol, equal_nan=equal_nan)
             except AssertionError as e:
-                print('Predict Err: ctx %d vs ctx %d at %s'%(i, gt_idx, name))
+                print(f'Predict Err: ctx {i} vs ctx {gt_idx} at {name}')
                 traceback.print_exc()
                 if raise_on_err:
                     raise e
@@ -1639,7 +1633,7 @@ def check_consistency(sym, ctx_list, scale=1.0, grad_req='write',
                           for (out, dt) in zip(exe_list[0].outputs, least_precise_dtype)]
         # Perform backward()
         for exe in exe_list:
-            out_grads = [mx.nd.array(golden_np, ctx=exe._ctx,
+            out_grads = [mx.nd.array(golden_np, ctx=exe._device,
                                      dtype=out.dtype).tostype(out.stype)
                          for (golden_np, out) in zip(golden_data_np, exe.outputs)]
             exe.backward(out_grads)
@@ -1673,8 +1667,8 @@ def check_consistency(sym, ctx_list, scale=1.0, grad_req='write',
                     assert_almost_equal(arr, gtarr, rtol=rt, atol=at, equal_nan=equal_nan)
                 except AssertionError as e:
                     print('Train Err: {} {} ctx {} vs {} {} ctx {} at {}'.format(
-                        np.dtype(arr.dtype).name, arr.ctx, i,
-                        np.dtype(gtarr.dtype).name, gtarr.ctx, gt_idx, name))
+                        get_dtype_name(arr.dtype), arr.device, i,
+                        get_dtype_name(gtarr.dtype), gtarr.device, gt_idx, name))
                     traceback.print_exc()
                     if raise_on_err:
                         raise e
@@ -1748,7 +1742,7 @@ def download(url, fname=None, dirname=None, overwrite=False, retries=5):
         # pylint: disable=W0703
         try:
             r = requests.get(url, stream=True)
-            assert r.status_code == 200, "failed to open %s" % url
+            assert r.status_code == 200, f"failed to open {url}"
             with open(fname, 'wb') as f:
                 for chunk in r.iter_content(chunk_size=1024):
                     if chunk: # filter out keep-alive new chunks
@@ -2225,10 +2219,9 @@ def verify_generator(generator, buckets, probs, nsamples=1000000, nrepeat=5, suc
         expected_freq_l.append(expected_freq)
     success_num = (np.array(cs_ret_l) > alpha).sum()
     if success_num < nrepeat * success_rate:
-        raise AssertionError("Generator test fails, Chi-square p=%s, obs_freq=%s, expected_freq=%s."
-                             "\nbuckets=%s, probs=%s"
-                             % (str(cs_ret_l), str(obs_freq_l), str(expected_freq_l),
-                                str(buckets), str(probs)))
+        raise AssertionError(f"Generator test fails, Chi-square p={str(cs_ret_l)}, "
+                             f"obs_freq={str(obs_freq_l)}, expected_freq={str(expected_freq_l)}."
+                             f"\nbuckets={str(buckets)}, probs={str(probs)}")
     return cs_ret_l
 
 
@@ -2253,19 +2246,19 @@ def compare_optimizer(opt1, opt2, shapes, dtype, w_stype='default', g_stype='def
     s1_list, s2_list = [], []
     for i, shape in enumerate(shapes):
         if w_stype == 'default':
-            w2 = mx.random.uniform(shape=shape, ctx=default_context(), dtype=dtype)
-            w1 = w2.copyto(default_context())
+            w2 = mx.random.uniform(shape=shape, ctx=default_device(), dtype=dtype)
+            w1 = w2.copyto(default_device())
         elif w_stype in ('row_sparse', 'csr'):
             w2 = rand_ndarray(shape, w_stype, density=1, dtype=dtype)
-            w1 = w2.copyto(default_context()).tostype('default')
+            w1 = w2.copyto(default_device()).tostype('default')
         else:
             raise Exception("type not supported yet")
         if g_stype == 'default':
-            g2 = mx.random.uniform(shape=shape, ctx=default_context(), dtype=dtype)
-            g1 = g2.copyto(default_context())
+            g2 = mx.random.uniform(shape=shape, ctx=default_device(), dtype=dtype)
+            g1 = g2.copyto(default_device())
         elif g_stype in ('row_sparse', 'csr'):
             g2 = rand_ndarray(shape, g_stype, dtype=dtype)
-            g1 = g2.copyto(default_context()).tostype('default')
+            g1 = g2.copyto(default_device()).tostype('default')
         else:
             raise Exception("type not supported yet")
         s1 = opt1.create_state_multi_precision(i, w1)
@@ -2301,19 +2294,19 @@ def compare_optimizer_noise_seeded(opt1, opt2, shapes, dtype, noise_seed,
     s1_list, s2_list = [], []
     for i, shape in enumerate(shapes):
         if w_stype == 'default':
-            w2 = mx.random.uniform(shape=shape, ctx=default_context(), dtype=dtype)
-            w1 = w2.copyto(default_context())
+            w2 = mx.random.uniform(shape=shape, ctx=default_device(), dtype=dtype)
+            w1 = w2.copyto(default_device())
         elif w_stype in ('row_sparse', 'csr'):
             w2 = rand_ndarray(shape, w_stype, density=1, dtype=dtype)
-            w1 = w2.copyto(default_context()).tostype('default')
+            w1 = w2.copyto(default_device()).tostype('default')
         else:
             raise Exception("type not supported yet")
         if g_stype == 'default':
-            g2 = mx.random.uniform(shape=shape, ctx=default_context(), dtype=dtype)
-            g1 = g2.copyto(default_context())
+            g2 = mx.random.uniform(shape=shape, ctx=default_device(), dtype=dtype)
+            g1 = g2.copyto(default_device())
         elif g_stype in ('row_sparse', 'csr'):
             g2 = rand_ndarray(shape, g_stype, dtype=dtype)
-            g1 = g2.copyto(default_context()).tostype('default')
+            g1 = g2.copyto(default_device()).tostype('default')
         else:
             raise Exception("type not supported yet")
         s1 = opt1.create_state_multi_precision(i, w1)
@@ -2461,13 +2454,13 @@ def has_tvm_ops():
     is GPU, it only returns True for CUDA compute capability > 52 where FP16 is supported.
     """
     built_with_tvm_op = _features.is_enabled("TVM_OP")
-    ctx = current_context()
-    if ctx.device_type == 'gpu':
+    device = current_device()
+    if device.device_type == 'gpu':
         try:
-            cc = get_cuda_compute_capability(ctx)
+            cc = get_cuda_compute_capability(device)
         except:  # pylint: disable=bare-except
             print('Failed to get CUDA compute capability for context {}. The operators '
-                  'built with USE_TVM_OP=1 will not be run in unit tests.'.format(ctx))
+                  'built with USE_TVM_OP=1 will not be run in unit tests.'.format(device))
             return False
         print('Cuda arch compute capability: sm_{}'.format(str(cc)))
         return built_with_tvm_op and cc >= 53
@@ -2479,16 +2472,16 @@ def is_op_runnable():
     1. Built with USE_TVM_OP=0.
     2. Built with USE_TVM_OP=1, but with compute capability >= 53.
     """
-    ctx = current_context()
-    if ctx.device_type == 'gpu':
+    device = current_device()
+    if device.device_type == 'gpu':
         if not _features.is_enabled("TVM_OP"):
             return True
         else:
             try:
-                cc = get_cuda_compute_capability(ctx)
+                cc = get_cuda_compute_capability(device)
             except:  # pylint: disable=bare-except
                 print('Failed to get CUDA compute capability for context {}. The operators '
-                      'built with USE_TVM_OP=1 will not be run in unit tests.'.format(ctx))
+                      'built with USE_TVM_OP=1 will not be run in unit tests.'.format(device))
                 return False
             print('Cuda arch compute capability: sm_{}'.format(str(cc)))
             return cc >= 53

@@ -141,7 +141,7 @@ else:
 
 from mxnet.runtime import Features
 if Features().is_enabled("ONEDNN"):
-    libraries.append('ONEDNN')
+    libraries.append('oneDNN')
 
 short_description += ' This version uses {0}.'.format(' and '.join(libraries))
 
@@ -205,4 +205,4 @@ setup(name=package_name,
           'Topic :: Software Development :: Libraries',
           'Topic :: Software Development :: Libraries :: Python Modules',
       ],
-      url='https://github.com/apache/incubator-mxnet')
+      url='https://github.com/apache/mxnet')

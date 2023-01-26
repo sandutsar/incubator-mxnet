@@ -1,19 +1,22 @@
-<!--- Licensed to the Apache Software Foundation (ASF) under one -->
-<!--- or more contributor license agreements.  See the NOTICE file -->
-<!--- distributed with this work for additional information -->
-<!--- regarding copyright ownership.  The ASF licenses this file -->
-<!--- to you under the Apache License, Version 2.0 (the -->
-<!--- "License"); you may not use this file except in compliance -->
-<!--- with the License.  You may obtain a copy of the License at -->
-
-<!---   http://www.apache.org/licenses/LICENSE-2.0 -->
-
-<!--- Unless required by applicable law or agreed to in writing, -->
-<!--- software distributed under the License is distributed on an -->
-<!--- "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY -->
-<!--- KIND, either express or implied.  See the License for the -->
-<!--- specific language governing permissions and limitations -->
-<!--- under the License. -->
+<!--
+  ~ Licensed to the Apache Software Foundation (ASF) under one
+  ~ or more contributor license agreements.  See the NOTICE file
+  ~ distributed with this work for additional information
+  ~ regarding copyright ownership.  The ASF licenses this file
+  ~ to you under the Apache License, Version 2.0 (the
+  ~ "License"); you may not use this file except in compliance
+  ~ with the License.  You may obtain a copy of the License at
+  ~
+  ~   http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing,
+  ~ software distributed under the License is distributed on an
+  ~ "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+  ~ KIND, either express or implied.  See the License for the
+  ~ specific language governing permissions and limitations
+  ~ under the License.
+  ~
+-->
 
 # Artifact Repository - Pushing and Pulling libmxnet
 
@@ -23,7 +26,7 @@ An MXNet artifact is defined as the following set of files:
 
 * The compiled libmxnet.so
 * License files for dependencies that required their licenses to be shipped with the binary
-* Dependencies that should be shipped together with the binary. For instance, for packaging the python wheel files, some dependencies that cannot be statically linked to the library need to also be included, see here (https://github.com/apache/incubator-mxnet/blob/master/tools/pip/setup.py#L142).
+* Dependencies that should be shipped together with the binary. For instance, for packaging the python wheel files, some dependencies that cannot be statically linked to the library need to also be included, see here (https://github.com/apache/mxnet/blob/master/tools/pip/setup.py#L142).
 
 The artifact_repository.py script automates the upload and download of the specified files with the appropriate S3 object keys by taking explicitly set, or automatically derived, values for the different characteristics of the artifact.
 
@@ -55,11 +58,11 @@ If not set, derived through the value of sys.platform (https://docs.python.org/3
 
 Manually configured through the --variant argument. The current variants are: cpu, native, cu101, cu102, cu110, cu112.
 
-As long as the tool is being run from the MXNet code base, the runtime feature detection tool (https://github.com/larroy/mxnet/blob/dd432b7f241c9da2c96bcb877c2dc84e6a1f74d4/docs/api/python/libinfo/libinfo.md) can be used to detect whether the library has been compiled with MKL (library has ONEDNN feature enabled) and/or CUDA support (compiled with CUDA feature enabled).
+As long as the tool is being run from the MXNet code base, the runtime feature detection tool (https://github.com/larroy/mxnet/blob/dd432b7f241c9da2c96bcb877c2dc84e6a1f74d4/docs/api/python/libinfo/libinfo.md) can be used to detect whether the library has been compiled with oneDNN (library has oneDNN feature enabled) and/or CUDA support (compiled with CUDA feature enabled).
 
 If it has been compiled with CUDA support, the output of /usr/local/cuda/bin/nvcc --version can be mined for the exact CUDA version (eg. 8.0, 9.0, etc.).
 
-By knowing which features are enabled on the binary, and if necessary, which CUDA version is installed on the machine, the value for the variant argument can be calculated. Eg. if CUDA features are enabled, and nvcc reports cuda version 10.2, then the variant would be cu102. If neither ONEDNN nor CUDA features are enabled, the variant would be native. 
+By knowing which features are enabled on the binary, and if necessary, which CUDA version is installed on the machine, the value for the variant argument can be calculated. Eg. if CUDA features are enabled, and nvcc reports cuda version 10.2, then the variant would be cu102. If neither oneDNN nor CUDA features are enabled, the variant would be native. 
 
 **Dependency Linking**
 

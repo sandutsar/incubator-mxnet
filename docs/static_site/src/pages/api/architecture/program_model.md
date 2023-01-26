@@ -615,11 +615,11 @@ finding that many of these trade-offs (like imperative vs symbolic aren't necess
 You can choose your approach, or combine the approaches
 to create more interesting and intelligent deep learning libraries.
 
-## Contribute to MXNet
+## Contribute to Apache MXNet
 
 This document is part of our effort to provide [open-source system design notes](overview)
-for deep learning libraries. If you're interested in contributing to _MXNet_ or its
-documentation, [fork us on GitHub](http://github.com/apache/incubator-mxnet).
+for deep learning libraries. If you're interested in contributing to Apache MXNet or its
+documentation, [fork us on GitHub](http://github.com/apache/mxnet).
 
 ## Next Steps
 

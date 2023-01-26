@@ -156,11 +156,8 @@ class Optimizer(object):
         assert(isinstance(klass, type))
         name = klass.__name__.lower()
         if name in Optimizer.opt_registry:
-            warnings.warn('WARNING: New optimizer %s.%s is overriding '
-                          'existing optimizer %s.%s' %
-                          (klass.__module__, klass.__name__,
-                           Optimizer.opt_registry[name].__module__,
-                           Optimizer.opt_registry[name].__name__))
+            warnings.warn(f'WARNING: New optimizer {klass.__module__}.{klass.__name__} is overriding '
+                          f'existing optimizer {Optimizer.opt_registry[name].__module__}.{Optimizer.opt_registry[name].__name__}')
         Optimizer.opt_registry[name] = klass
         return klass
 
@@ -196,7 +193,7 @@ class Optimizer(object):
         if name.lower() in Optimizer.opt_registry:
             return Optimizer.opt_registry[name.lower()](**kwargs)
         else:
-            raise ValueError('Cannot find optimizer %s' % name)
+            raise ValueError(f'Cannot find optimizer {name}')
 
     @property
     def learning_rate(self):
@@ -431,6 +428,12 @@ class Optimizer(object):
         self.wd_mult.update(args_wd_mult)
 
     def _set_current_context(self, device_id):
+        """This function has been deprecated. Please refer to ``Optimizer._set_current_context``."""
+        warnings.warn('Optimizer._set_current_context has been renamed to'
+                      ' Optimizer._set_current_device', DeprecationWarning)
+        return self._set_current_device(device_id)
+
+    def _set_current_device(self, device_id):
         """Sets the number of the currently handled device.
 
         Parameters

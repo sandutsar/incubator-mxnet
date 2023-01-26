@@ -46,6 +46,8 @@ core_logic: {
   utils.parallel_stage('Tests', [
     custom_steps.test_unix_python3_cpu('cpu'),
     custom_steps.test_unix_python3_onnx_cpu('cpu'),
+    // TVMOP has issue with NAN, see https://github.com/apache/incubator-mxnet/issues/20729
+    custom_steps.test_unix_python3_array_api('cpu_openblas_no_tvm_op'),
     custom_steps.test_unix_python3_mkl_cpu('cpu_mkl'),
     custom_steps.test_unix_python3_onednn_cpu('onednn_cpu'),
     custom_steps.test_unix_python3_onednn_mkl_cpu('onednn_mkl_cpu'),
@@ -53,7 +55,7 @@ core_logic: {
     custom_steps.test_unix_onnx_cpu('cpu'),
     */
     /*  Disabled due to master build failure:
-     *  http://jenkins.mxnet-ci.amazon-ml.com/blue/organizations/jenkins/incubator-mxnet/detail/master/1221/pipeline/
+     *  http://jenkins.mxnet-ci.com/blue/organizations/jenkins/incubator-mxnet/detail/master/1221/pipeline/
      *  https://github.com/apache/incubator-mxnet/issues/11801
     custom_steps.test_unix_distributed_kvstore_cpu('cpu')
     */

@@ -17,12 +17,12 @@
 
 import os
 import sys
-import tempfile
 import math
 import numpy as np
 import mxnet as mx
 
 from mxnet.test_utils import rand_ndarray, assert_almost_equal, rand_coord_2d, create_vector
+from mxnet.util import TemporaryDirectory
 from mxnet import gluon, nd
 from common import with_seed
 import pytest
@@ -153,7 +153,7 @@ def test_tensor():
         a = nd.random.uniform(shape=LARGE_X)
         assert a[-1] != 0
 
-    @pytest.mark.skip(reason="Randint flaky, tracked at https://github.com/apache/incubator-mxnet/issues/16172")
+    @pytest.mark.skip(reason="Randint flaky, tracked at https://github.com/apache/mxnet/issues/16172")
     @with_seed()
     def check_ndarray_random_randint():
         # check if randint can generate value greater than 2**32 (large)
@@ -374,7 +374,7 @@ def test_tensor():
 
     def check_load_save():
         x = create_vector(size=LARGE_X)
-        with tempfile.TemporaryDirectory() as tmp:
+        with TemporaryDirectory() as tmp:
             tmpfile = os.path.join(tmp, 'large_vector')
             nd.save(tmpfile, [x])
             y = nd.load(tmpfile)
@@ -452,14 +452,14 @@ def test_basic():
         assert idx.shape[0] == 1
 
     @pytest.mark.skip(reason="Memory doesn't free up after stacked execution with other ops, " +
-                      "tracked at https://github.com/apache/incubator-mxnet/issues/17411")
+                      "tracked at https://github.com/apache/mxnet/issues/17411")
     def check_argsort():
         a = create_vector(size=LARGE_X)
         s = nd.argsort(a, axis=0, is_ascend=False, dtype=np.int64)
         assert s[0] == (LARGE_X - 1)
 
     @pytest.mark.skip(reason="Memory doesn't free up after stacked execution with other ops, " +
-                      "tracked at https://github.com/apache/incubator-mxnet/issues/17411")
+                      "tracked at https://github.com/apache/mxnet/issues/17411")
     def check_sort():
         a = create_vector(size=LARGE_X)
 
@@ -475,7 +475,7 @@ def test_basic():
         check_ascend(a)
 
     @pytest.mark.skip(reason="Memory doesn't free up after stacked execution with other ops, " +
-                      "tracked at https://github.com/apache/incubator-mxnet/issues/17411")
+                      "tracked at https://github.com/apache/mxnet/issues/17411")
     def check_topk():
         a = create_vector(size=LARGE_X)
         ind = nd.topk(a, k=10, axis=0, dtype=np.int64)

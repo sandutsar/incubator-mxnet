@@ -87,8 +87,8 @@ def config_cython():
             if not fn.endswith(".pyx"):
                 continue
             ret.append(Extension(
-                "mxnet.%s.%s" % (subdir, fn[:-4]),
-                ["mxnet/cython/%s" % fn],
+                f"mxnet.{subdir}.{fn[:-4]}",
+                [f"mxnet/cython/{fn}"],
                 include_dirs=["../include/", "../3rdparty/tvm/nnvm/include"],
                 library_dirs=library_dirs,
                 libraries=libraries,
@@ -100,8 +100,8 @@ def config_cython():
             if not fn.endswith(".pyx"):
                 continue
             ret.append(Extension(
-                "mxnet._ffi.%s.%s" % (subdir, fn[:-4]),
-                ["mxnet/_ffi/_cython/%s" % fn],
+                f"mxnet._ffi.{subdir}.{fn[:-4]}",
+                [f"mxnet/_ffi/_cython/{fn}"],
                 include_dirs=["../include/", "../3rdparty/tvm/nnvm/include"],
                 library_dirs=library_dirs,
                 libraries=libraries,
@@ -122,7 +122,7 @@ setup(name='mxnet',
       description=open(os.path.join(CURRENT_DIR, 'README.md')).read(),
       packages=find_packages(),
       data_files=[('mxnet', [LIB_PATH[0]])],
-      url='https://github.com/apache/incubator-mxnet',
+      url='https://github.com/apache/mxnet',
       ext_modules=config_cython(),
       classifiers=[
           # https://pypi.org/pypi?%3Aaction=list_classifiers

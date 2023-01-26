@@ -4,14 +4,21 @@ Software Foundation. As such, they might contain software components with more
 restrictive licenses than the Apache License and you'll need to decide whether
 they are appropriate for your usage. The packages linked here contain GPL GCC
 Runtime Library components. Like all Apache Releases, the official Apache MXNet
-(incubating) releases consist of source code only and are found at the [Download
+releases consist of source code only and are found at the [Download
 page](https://mxnet.apache.org/get_started/download).
 
 Run the following command:
 
-<div class="v1-8-0">
+<div class="v1-9-1">
 {% highlight bash %}
 pip install mxnet
+{% endhighlight %}
+
+</div> <!-- End of v1-9-1 -->
+
+<div class="v1-8-0">
+{% highlight bash %}
+pip install mxnet==1.8.0.post0
 {% endhighlight %}
 
 Start from 1.7.0 release, oneDNN(previously known as: MKL-DNN/DNNL) is enabled
@@ -35,7 +42,7 @@ MXNet tuning guide</a>.
 To install native MXNet without oneDNN, run the following command:
 
 {% highlight bash %}
-pip install mxnet-native
+pip install mxnet-native==1.8.0.post0
 {% endhighlight %}
 
 </div> <!-- End of v1-8-0 -->

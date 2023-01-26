@@ -510,9 +510,9 @@ class CTCLoss(Loss):
 
     def __init__(self, layout='NTC', label_layout='NT', weight=None, **kwargs):
         assert layout in ['NTC', 'TNC'],\
-            "Only 'NTC' and 'TNC' layouts for pred are supported. Got: %s" % layout
+            f"Only 'NTC' and 'TNC' layouts for pred are supported. Got: {layout}"
         assert label_layout in ['NT', 'TN'],\
-            "Only 'NT' and 'TN' layouts for label are supported. Got: %s" % label_layout
+            f"Only 'NT' and 'TN' layouts for label are supported. Got: {label_layout}"
         self._layout = layout
         self._label_layout = label_layout
         batch_axis = label_layout.find('N')
@@ -713,8 +713,7 @@ class LogisticLoss(Loss):
         super(LogisticLoss, self).__init__(weight, batch_axis, **kwargs)
         self._label_format = label_format
         if self._label_format not in ["signed", "binary"]:
-            raise ValueError("label_format can only be signed or binary, received %s."
-                             % label_format)
+            raise ValueError(f"label_format can only be signed or binary, received {label_format}.")
 
     def forward(self, pred, label, sample_weight=None):
         label = npx.reshape_like(label, pred)
@@ -956,6 +955,7 @@ class SDMLLoss(Loss):
         return squared_diffs.sum(axis=2)
 
 
+    # pylint: disable=too-many-function-args
     def _compute_labels(self, batch_size):
         """
         The function creates the label matrix for the loss.
@@ -1005,4 +1005,4 @@ class SDMLLoss(Loss):
         # multiply for the number of labels to obtain the correct loss (gluon kl_loss averages instead of sum)
         # PR#18423:multiply for the number of labels should multiply x1.shape[1] rather than x1.shape[0])
         # After PR#18423, it is no need to multiply it anymore.
-        return self.kl_loss(log_probabilities, labels.as_in_ctx(distances.ctx))
+        return self.kl_loss(log_probabilities, labels.to_device(distances.device))

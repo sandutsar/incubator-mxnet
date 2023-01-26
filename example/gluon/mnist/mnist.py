@@ -71,8 +71,8 @@ val_data = gluon.data.DataLoader(
 def test(ctx):
     metric = mx.gluon.metric.Accuracy()
     for data, label in val_data:
-        data = data.as_in_context(ctx)
-        label = label.as_in_context(ctx)
+        data = data.to_device(ctx)
+        label = label.to_device(ctx)
         output = net(data)
         metric.update([label], [output])
 
@@ -93,8 +93,8 @@ def train(epochs, ctx):
         metric.reset()
         for i, (data, label) in enumerate(train_data):
             # Copy data to ctx if necessary
-            data = data.as_in_context(ctx)
-            label = label.as_in_context(ctx)
+            data = data.to_device(ctx)
+            label = label.to_device(ctx)
             # Start recording computation graph with record() section.
             # Recorded graphs can then be differentiated with backward.
             with autograd.record():
@@ -108,13 +108,13 @@ def train(epochs, ctx):
 
             if i % opt.log_interval == 0 and i > 0:
                 name, acc = metric.get()
-                print('[Epoch %d Batch %d] Training: %s=%f'%(epoch, i, name, acc))
+                print(f'[Epoch {epoch} Batch {i}] Training: {name}={acc}')
 
         name, acc = metric.get()
-        print('[Epoch %d] Training: %s=%f'%(epoch, name, acc))
+        print(f'[Epoch {epoch}] Training: {name}={acc}')
 
         name, val_acc = test(ctx)
-        print('[Epoch %d] Validation: %s=%f'%(epoch, name, val_acc))
+        print(f'[Epoch {epoch}] Validation: {name}={val_acc}')
 
     net.save_parameters('mnist.params')
 

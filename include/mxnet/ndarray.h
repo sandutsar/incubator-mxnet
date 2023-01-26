@@ -18,7 +18,6 @@
  */
 
 /*!
- *  Copyright (c) 2015 by Contributors
  * \file ndarray.h
  * \brief NDArray interface that handles array arithematics.
  */
@@ -37,9 +36,6 @@
 #include <memory>
 #include <string>
 #include <vector>
-#if MXNET_USE_ONEDNN == 1
-#include <mkldnn.hpp>
-#endif
 #include "./base.h"
 #include "./engine.h"
 #include "./storage.h"
@@ -47,6 +43,10 @@
 #if DMLC_USE_CXX11 == 0
 #error "cxx11 was required for ndarray module"
 #endif
+
+namespace dnnl {
+struct memory;
+}  // namespace dnnl
 
 namespace mxnet {
 // enum for storage types
@@ -74,7 +74,7 @@ enum NDArrayFormatErr {
   kRSPIdxErr,     // indices error for row sparse
 };
 
-class MKLDNNMemory;
+class DNNLMemory;
 
 /*!
  * \brief ndarray interface
@@ -218,7 +218,7 @@ class NDArray {
   /*
    * This indicates whether an array is a view of another array (created by
    * reshape or slice). If an array is a view and the data is stored in
-   * MKLDNN format, we need to convert the data to the default format when
+   * DNNL format, we need to convert the data to the default format when
    * data in the view is accessed.
    */
   inline bool IsView() const {
@@ -401,6 +401,12 @@ class NDArray {
    * trigger computation.
    */
   void WaitToWrite() const;
+  /*!
+   * \brief Synchronize the destination stream provided by consumer with the
+   *    source stream that current NDArray lives on.
+   * \param stream a pointer to the stream provided by consumer.
+   */
+  void StreamSync(int stream) const;
   /*! \return the associated variable of the ndarray.*/
   inline Engine::VarHandle var() const {
     return ptr_->var;
@@ -730,20 +736,20 @@ class NDArray {
 
 #if MXNET_USE_ONEDNN == 1
   /*
-   * Create NDArray from mkldnn memory.
-   * mkldnn_mem The mkldnn memory to be managed.
+   * Create NDArray from dnnl memory.
+   * dnnl_mem The dnnl memory to be managed.
    */
-  explicit NDArray(const std::shared_ptr<mkldnn::memory>& mkldnn_mem);
+  explicit NDArray(const std::shared_ptr<dnnl::memory>& dnnl_mem);
   /*
-   * Create NDArray from mkldnn memory descriptor.
-   * mem_pd The mkldnn memory descriptor to be created.
+   * Create NDArray from dnnl memory descriptor.
+   * mem_pd The dnnl memory descriptor to be created.
    */
-  explicit NDArray(const mkldnn::memory::desc& md);
+  explicit NDArray(const void* md);
   /*
-   * Test if the data is stored in one of special MKLDNN format.
+   * Test if the data is stored in one of special DNNL formats.
    */
-  bool IsMKLDNNData() const {
-    return ptr_->IsMKLDNN();
+  bool IsDNNLData() const {
+    return ptr_->IsDNNL();
   }
   /*
    * Test if the data is stored in one of default MXNet formats.
@@ -752,37 +758,37 @@ class NDArray {
     return ptr_->IsDefault();
   }
   /*
-   * All functions below return a raw pointer to mkldnn memory. Actually there
-   * is a shared pointer that hold the memory either in NDArray or in MKLDNN
+   * All functions below return a raw pointer to dnnl memory. Actually there
+   * is a shared pointer that hold the memory either in NDArray or in DNNL
    * stream. As long as we call these functions inside an operator, the return
    * memory is always valid.
    */
 
   /*
-   * This function returns mkldnn::memory with the default primitive_desc.
+   * This function returns dnnl::memory with the default primitive_desc.
    */
-  const mkldnn::memory* GetMKLDNNData() const;
+  const dnnl::memory* GetDNNLData() const;
   /*
-   * This function returns mkldnn::memory with the given primitive_desc
+   * This function returns dnnl::memory with the given primitive_desc
    * as long as the array size meets the required size in the given primitive_desc.
    */
-  const mkldnn::memory* GetMKLDNNData(const mkldnn::memory::desc& md) const;
+  const dnnl::memory* GetDNNLData(const void* md) const;
   /*
-   * This function returns mkldnn::memory with the given primitive_desc.
-   * The returned mkldnn::memory will have the same physical layout as
+   * This function returns dnnl::memory with the given primitive_desc.
+   * The returned dnnl::memory will have the same physical layout as
    * the given primitive_desc.
    */
-  const mkldnn::memory* GetMKLDNNDataReorder(const mkldnn::memory::desc& md) const;
+  const dnnl::memory* GetDNNLDataReorder(const void* md) const;
 
   /*
-   * This function copies data from mkldnn memory.
+   * This function copies data from dnnl memory.
    */
-  void CopyFrom(const mkldnn::memory& mem);
+  void CopyFrom(const dnnl::memory& mem);
   /*
-   * This function allocates memory for array and creates mkldnn memory
+   * This function allocates memory for array and creates dnnl memory
    * with the specified format.
    */
-  mkldnn::memory* CreateMKLDNNData(const mkldnn::memory::desc& md);
+  dnnl::memory* CreateDNNLData(const void* md);
 
   /*
    * These are the async version of the methods above.
@@ -790,7 +796,7 @@ class NDArray {
    * the array are complete.
    */
   void Reorder2DefaultAsync() const;
-  void MKLDNNDataReorderAsync(const mkldnn::memory::desc& md) const;
+  void DNNLDataReorderAsync(const void* md) const;
 
   /*
    * This creates a new NDArray with the reordered data.
@@ -804,7 +810,7 @@ class NDArray {
    */
   NDArray Reorder2DefaultFloatFormat() const;
 
-  void InvalidateMKLDNNData();
+  void InvalidateDNNLData();
 
   /*
    * This function is used inside operators to reshape an array.
@@ -816,12 +822,12 @@ class NDArray {
    * which can be expensive.
    * It's used by FullyConnected right now.
    */
-  NDArray MKLDNNDataReshape(const mxnet::TShape& shape) const;
+  NDArray DNNLDataReshape(const mxnet::TShape& shape) const;
 
   /*!
-   * \ Fix mkldnn memory descriptor mismatch from NDArray.
+   * \ Fix dnnl memory descriptor mismatch from NDArray.
    */
-  void UpdateMKLDNNMemDesc(const mkldnn::memory::desc& desc);
+  void UpdateDNNLMemDesc(const void* desc);
 #endif
 
   /*!
@@ -858,9 +864,9 @@ class NDArray {
     std::vector<Storage::Handle> aux_handles;
 
 #if MXNET_USE_ONEDNN == 1
-    /*! This is created when data is stored in MKLDNN format.
+    /*! This is created when data is stored in DNNL format.
      */
-    std::shared_ptr<MKLDNNMemory> mkl_mem_;
+    std::shared_ptr<DNNLMemory> dnnl_mem_;
 #endif
     /*! \brief variable from engine */
     Engine::VarHandle var;
@@ -1036,7 +1042,7 @@ class NDArray {
       if (delay_alloc) {
         Storage::Get()->Alloc(&shandle);
 #if MXNET_USE_ONEDNN == 1
-        mkl_mem_ = nullptr;
+        dnnl_mem_ = nullptr;
 #endif
         delay_alloc = false;
       }
@@ -1052,7 +1058,7 @@ class NDArray {
         shandle.size = dbytes;
         Storage::Get()->Alloc(&shandle);
 #if MXNET_USE_ONEDNN == 1
-        mkl_mem_ = nullptr;
+        dnnl_mem_ = nullptr;
 #endif
         delay_alloc = false;
       } else if (shandle.size < dbytes) {
@@ -1062,7 +1068,7 @@ class NDArray {
         shandle.size = dbytes;
         Storage::Get()->Alloc(&shandle);
 #if MXNET_USE_ONEDNN == 1
-        mkl_mem_ = nullptr;
+        dnnl_mem_ = nullptr;
 #endif
       }
     }
@@ -1099,15 +1105,15 @@ class NDArray {
     void CheckAndAllocData(const mxnet::TShape& shape, int dtype);
 
 #if MXNET_USE_ONEDNN == 1
-    // Have MKL memory reference to the data in the default storage
-    // or create memory for MKLDNN.
-    void SetMKLMem(const mxnet::TShape& shape, int dtype);
-    // If the data is stored in MKLDNN layout, we reorder data in mkl_mem_ and
+    // Have DNNL memory reference to the data in the default storage
+    // or create memory for DNNL.
+    void SetDNNLMem(const mxnet::TShape& shape, int dtype);
+    // If the data is stored in DNNL layout, we reorder data in dnnl_mem_ and
     // save the result in shandle.
     void Reorder2Default();
     // Reroder data to a specified layout.
-    void MKLDNNDataReorder(const mkldnn::memory::desc& md);
-    bool IsMKLDNN() const;
+    void DNNLDataReorder(const void* md);
+    bool IsDNNL() const;
     bool IsDefault() const;
 #endif
 
